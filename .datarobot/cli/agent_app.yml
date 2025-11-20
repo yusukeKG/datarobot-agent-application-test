@@ -7,7 +7,6 @@ root:
       A secret key used to sign session cookies. This should be a long, random string.
       The default value is a cryptographically random generated one if the secret key is not already configured.
 
-
   - env: INFRA_ENABLE_OAUTH
     type: string
     optional: true
@@ -17,13 +16,12 @@ root:
     options:
       - name: "DataRobot OAuth Provider"
         value: "datarobot_provider.py"
-      - name: "OSS Authlib Provider"
-        value: "authlib_provider.py"
 
   - key: OAuth_Providers
     type: string
     default:
     optional: true
+    multiple: true
     help: |
       Which authorization servers do you want in the application?
     options:

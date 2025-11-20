@@ -1,3 +1,5 @@
+/Taskfile.yaml
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -260,3 +262,11 @@ node_modules/
 
 # Agent output files
 *execute_output.json
+
+# Generated Taskfile
+Taskfile.gen.yaml
+
+# DataRobot CLI stuff:
+#  .dr/state contains user-specific history and audit-trail while working with the CLI
+.datarobot/state/
+.datarobot/cli/state.yaml

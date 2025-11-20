@@ -1,6 +1,6 @@
 import { createContext } from 'react';
-import { useAgUiChat } from '@/hooks/use-ag-ui-chat';
 import { HttpAgent } from '@ag-ui/client';
+import type { useAgUiChat } from '@/hooks/use-ag-ui-chat';
 
 export type AgUiChatReturn = ReturnType<typeof useAgUiChat>;
 
@@ -11,10 +11,10 @@ export const ChatContext = createContext<AgUiChatReturn>({
   setState: () => {},
   chatId: '',
   setChatId: () => {},
-  messages: [],
-  setMessages: () => {},
+  events: [],
+  setEvents: () => {},
   message: null,
-  combinedMessages: [],
+  combinedEvents: [],
   setMessage: () => {},
   userInput: '',
   setUserInput: () => {},
@@ -24,8 +24,10 @@ export const ChatContext = createContext<AgUiChatReturn>({
   setInitialState: () => {},
   progress: {},
   setProgress: () => {},
-  runningAgent: {},
-  setRunningAgent: () => {},
+  isAgentRunning: false,
+  setIsAgentRunning: () => {},
+  isThinking: false,
+  setIsThinking: () => {},
   /*methods*/
   sendMessage: () => Promise.resolve(),
   registerOrUpdateTool: () => {},
@@ -33,7 +35,7 @@ export const ChatContext = createContext<AgUiChatReturn>({
   removeTool: () => {},
   getTool: () => null,
   /*resolver*/
-  useFetchHistory: () => ({}) as any,
+  useFetchHistory: (() => ({})) as unknown as AgUiChatReturn['useFetchHistory'],
   isLoadingHistory: false,
-  refetchHistory: () => Promise.resolve({} as any),
-} as AgUiChatReturn);
+  refetchHistory: (() => Promise.resolve(undefined)) as unknown as AgUiChatReturn['refetchHistory'],
+});

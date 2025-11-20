@@ -26,6 +26,7 @@ from datarobot_pulumi_utils.pulumi.stack import PROJECT_NAME
 
 
 from . import project_dir, use_case
+from .frontend_web import frontend_web
 from .llm import app_runtime_parameters as llm_app_runtime_parameters
 from .oauth import app_runtime_parameters as oauth_app_runtime_parameters
 from .writer_agent import writer_agent_app_runtime_parameters
@@ -183,7 +184,6 @@ def get_web_app_files(
             exclude_pattern.match(file_name) for exclude_pattern in EXCLUDE_PATTERNS
         )
     ]
-
     return source_files
 
 
@@ -226,7 +226,9 @@ web_app_runtime_parameters: list[
 )
 
 web_app_source = pulumi_datarobot.ApplicationSource(
-    files=get_web_app_files(runtime_parameter_values=web_app_runtime_parameters),
+    files=frontend_web.stdout.apply(
+        lambda _: get_web_app_files(runtime_parameter_values=web_app_runtime_parameters)
+    ),
     runtime_parameter_values=web_app_runtime_parameters,
     resources=pulumi_datarobot.ApplicationSourceResourcesArgs(
         resource_label=CustomAppResourceBundles.CPU_XL.value.id,
@@ -234,14 +236,13 @@ web_app_source = pulumi_datarobot.ApplicationSource(
     **web_app_source_args,
 )
 
-web_app = web_app_source.id.apply(
-    lambda x: pulumi_datarobot.CustomApplication(
-        resource_name=web_app_resource_name,
-        source_version_id=web_app_source.version_id,
-        use_case_ids=[use_case.id],
-        allow_auto_stopping=True,
-        resources=create_resources_args(x),
-    )
+web_app = pulumi_datarobot.CustomApplication(
+    resource_name=web_app_resource_name,
+    source_version_id=web_app_source.version_id,
+    use_case_ids=[use_case.id],
+    allow_auto_stopping=True,
+    resources=web_app_source.id.apply(create_resources_args),
+    opts=pulumi.ResourceOptions(depends_on=[web_app_source]),
 )
 
 pulumi.export(web_app_env_name, web_app.id)
@@ -252,7 +253,7 @@ pulumi.export(
 
 DATABASE_URI: Final[str] = "DATABASE_URI"
 database_uri = os.environ.get(
-    DATABASE_URI, "sqlite+aiosqlite:////tmp/ttmdocs/.data/talk_to_my_docs.db"
+    DATABASE_URI, "sqlite+aiosqlite:////tmp/agent_app/.data/agent_app.db"
 )
 
 pulumi.export("DATABASE_URI", database_uri)

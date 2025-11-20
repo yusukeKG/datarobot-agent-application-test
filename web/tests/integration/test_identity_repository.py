@@ -17,7 +17,6 @@
 from contextlib import asynccontextmanager
 from typing import Any
 
-import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app import Deps
@@ -25,7 +24,6 @@ from app.users.identity import AuthSchema, IdentityRepository, IdentityUpdate
 from app.users.user import UserCreate
 
 
-@pytest.mark.asyncio
 async def test_upsert_identity_create(db_deps: Deps) -> None:
     user_repo = db_deps.user_repo
     identity_repo: IdentityRepository = db_deps.identity_repo
@@ -48,7 +46,6 @@ async def test_upsert_identity_create(db_deps: Deps) -> None:
     assert identity.provider_user_id == "google-user-1"
 
 
-@pytest.mark.asyncio
 async def test_upsert_identity_update_existing(db_deps: Deps) -> None:
     user_repo = db_deps.user_repo
     identity_repo: IdentityRepository = db_deps.identity_repo
@@ -80,7 +77,6 @@ async def test_upsert_identity_update_existing(db_deps: Deps) -> None:
     assert updated.access_token == "new-token"
 
 
-@pytest.mark.asyncio
 async def test_upsert_identity_concurrent_insert_simulated(
     db_deps: Deps, monkeypatch: Any
 ) -> None:

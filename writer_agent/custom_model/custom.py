@@ -15,75 +15,36 @@
 # THIS SECTION OF CODE IS REQUIRED TO SETUP TRACING AND TELEMETRY FOR THE AGENTS.
 # REMOVING THIS CODE WILL DISABLE ALL MONITORING, TRACING AND TELEMETRY.
 # isort: off
-import logging
+from datarobot_genai.core.telemetry_agent import instrument
 
-# Suppress the "Attempting to instrument while already instrumented" warning
-logging.getLogger("opentelemetry.instrumentation.instrumentor").setLevel(logging.ERROR)
+instrument(framework="langgraph")
+# ruff: noqa: E402
+from agent import MyAgent
+from config import Config
 
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
-
-from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-from opentelemetry.instrumentation.openai import OpenAIInstrumentor
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
-
-instrument_requests = RequestsInstrumentor().instrument()
-instrument_aiohttp = AioHttpClientInstrumentor().instrument()
-instrument_httpx = HTTPXClientInstrumentor().instrument()
-instrument_openai = OpenAIInstrumentor().instrument()
-
-
-from opentelemetry.instrumentation.langchain import LangchainInstrumentor
-
-instrument_langchain = LangchainInstrumentor().instrument()
-import os
-
-# Some libraries collect telemetry data by default. Let's disable that.
-os.environ["RAGAS_DO_NOT_TRACK"] = "true"
-os.environ["DEEPEVAL_TELEMETRY_OPT_OUT"] = "YES"
 # isort: on
 # ------------------------------------------------------------------------------
+import asyncio
+import os
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, AsyncGenerator, Iterator, Union
 
-
-from typing import Any, AsyncGenerator, Iterator, Union, cast
-
-from datarobot_drum import RuntimeParameters
+from datarobot.models.genai.agent.auth import (
+    get_authorization_context,
+    set_authorization_context,
+)
 from datarobot_genai.core.chat import (
     CustomModelChatResponse,
     CustomModelStreamingResponse,
     initialize_authorization_context,
     to_custom_model_chat_response,
+    to_custom_model_streaming_response,
 )
 from openai.types.chat import CompletionCreateParams
 from openai.types.chat.completion_create_params import (
     CompletionCreateParamsNonStreaming,
     CompletionCreateParamsStreaming,
 )
-
-# ruff: noqa: E402
-from agent import MyAgent
-from helpers import to_custom_model_streaming_response
-
-
-def maybe_set_env_from_runtime_parameters(key: str) -> None:
-    """
-    Set an environment variable from a runtime parameter if it exists.
-
-    In local development, the runtime parameters are not available, and environment variable
-    is set from the .env file, so it's safe to ignore the exception.
-    """
-    RUNTIME_PARAMETER_PLACEHOLDER_VALUE = "SET_VIA_PULUMI_OR_MANUALLY"
-    try:
-        runtime_parameter_value = RuntimeParameters.get(key)
-        if (
-            runtime_parameter_value
-            and len(runtime_parameter_value) > 0
-            and runtime_parameter_value != RUNTIME_PARAMETER_PLACEHOLDER_VALUE
-        ):
-            os.environ[key] = runtime_parameter_value
-    except ValueError:
-        pass
 
 
 def load_model(code_dir: str) -> tuple[ThreadPoolExecutor, asyncio.AbstractEventLoop]:
@@ -129,34 +90,46 @@ def chat(
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     # Load MCP runtime parameters and session secret if configured
-    maybe_set_env_from_runtime_parameters("EXTERNAL_MCP_URL")
-    maybe_set_env_from_runtime_parameters("MCP_DEPLOYMENT_ID")
-    maybe_set_env_from_runtime_parameters("SESSION_SECRET_KEY")
+    # ["EXTERNAL_MCP_URL", "MCP_DEPLOYMENT_ID", "SESSION_SECRET_KEY"]
+    _ = Config()
 
     # Initialize the authorization context for downstream agents and tools to retrieve
     # access tokens for external services.
-    initialize_authorization_context(completion_create_params)
+    initialize_authorization_context(completion_create_params, **kwargs)
+
+    # Get the authorization context from the main thread to propagate to the worker thread
+    # ContextVars are thread-local, so we need to set it in the worker thread
+    try:
+        auth_context = get_authorization_context()
+    except LookupError:
+        auth_context = {}
 
     # Instantiate the agent, all fields from the completion_create_params are passed to the agent
     # allowing environment variables to be passed during execution
     agent = MyAgent(**completion_create_params)
+
     # Invoke the agent and check if it returns a generator or a tuple
-    result = thread_pool_executor.submit(
-        event_loop.run_until_complete,
-        agent.invoke(completion_create_params=completion_create_params),
-    ).result()
+    # Set the authorization context in the worker thread before invoking the agent
+    def invoke_with_auth_context():  # type: ignore[no-untyped-def]
+        try:
+            set_authorization_context(auth_context)
+        except AttributeError:
+            pass
+
+        return event_loop.run_until_complete(
+            agent.invoke(completion_create_params=completion_create_params)
+        )
+
+    result = thread_pool_executor.submit(invoke_with_auth_context).result()
 
     # Check if the result is a generator (streaming response)
     if isinstance(result, AsyncGenerator):
         # Streaming response
-        return cast(
-            Iterator[CustomModelStreamingResponse],
-            to_custom_model_streaming_response(
-                thread_pool_executor,
-                event_loop,
-                result,
-                model=completion_create_params.get("model"),
-            ),
+        return to_custom_model_streaming_response(
+            thread_pool_executor,
+            event_loop,
+            result,
+            model=completion_create_params.get("model"),
         )
     else:
         # Non-streaming response

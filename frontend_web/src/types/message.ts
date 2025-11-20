@@ -48,12 +48,18 @@ export type ReasoningUIPart = {
 /**
  * A tool invocation part of a message.
  */
+export interface ToolInvocationData {
+  state: string; // e.g. 'call' | 'result'
+  toolCallId?: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
 export type ToolInvocationUIPart = {
   type: 'tool-invocation';
   /**
    * The tool invocation.
    */
-  toolInvocation: any;
+  toolInvocation: ToolInvocationData;
 };
 /**
  * A source part of a message.
@@ -63,8 +69,7 @@ export type SourceUIPart = {
   /**
    * The source.
    */
-  // TODO?
-  source: any;
+  source: unknown;
 };
 /**
  * A file part of a message.

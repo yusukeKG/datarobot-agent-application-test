@@ -26,7 +26,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.ag_ui.translate import ExtendedBaseMessage, translate_messages
-from app.auth.ctx import must_get_auth_ctx
+from app.auth.ctx import get_auth_ctx_header, must_get_auth_ctx
 from app.chats import Chat, ChatBase, ChatRepository
 from app.deps import Deps
 from app.messages import (
@@ -205,12 +205,15 @@ async def create_chat_messages(
         async for event in await stream:
             yield encoder.encode(event)
 
+    headers: dict[str, str] = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    headers.update(get_auth_ctx_header(auth_ctx, deps.config.session_secret_key))
+
     return StreamingResponse(
         run_agent_in_background(),
         media_type=encoder.get_content_type(),
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=headers,
     )

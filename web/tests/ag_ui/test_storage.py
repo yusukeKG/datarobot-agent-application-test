@@ -136,7 +136,6 @@ async def run(agent: AGUIAgent, thread_id: str, *messages: Message) -> list[Base
     return events
 
 
-@pytest.mark.asyncio
 async def test_no_response_chat_message_created(
     storage_agent: AGUIAgentWithStorage,
     stub_agent: StubAgent,
@@ -219,7 +218,6 @@ A = Role.ASSISTANT
 U = Role.USER
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "input,expected",
     [

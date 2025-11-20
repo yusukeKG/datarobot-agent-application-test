@@ -26,7 +26,7 @@ ENV PULUMI_SKIP_UPDATE_CHECK=true
 RUN curl https://cli.datarobot.com/install | sh
 
 # Verify installations
-RUN python --version && uv --version && task --version && pulumi version && dr version
+RUN python --version && uv --version && task --version && pulumi version && dr --version
 
 # Set working directory
 WORKDIR /workspace

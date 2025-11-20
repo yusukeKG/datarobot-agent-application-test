@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ChatResponse } from '@/api/chat/types';
+import type { ChatListItem } from '@/api/chat/types';
 import { useNavigate } from 'react-router-dom';
 
 export interface ChatSidebarProps {
@@ -26,7 +26,7 @@ export interface ChatSidebarProps {
   onChatCreate: () => any;
   onChatSelect: (threadId: string) => any;
   onChatDelete: (threadId: string) => any;
-  chats?: ChatResponse[];
+  chats?: ChatListItem[];
 }
 
 export function ChatSidebarUi({
@@ -70,7 +70,7 @@ export function ChatSidebarUi({
                     >
                       <div>
                         {chat.id === chatId ? <MessageSquareText /> : <MessageSquare />}
-                        <span>{chat.title}</span>
+                        <span>{chat.name || 'New Chat'}</span>
                       </div>
                     </SidebarMenuButton>
                     <DropdownMenu>

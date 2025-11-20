@@ -1,13 +1,40 @@
 ---
 # https://taskfile.dev
 version: '3'
-
 tasks:
+  install-pulumi-plugin:
+    # Prevents github rate limiting issues when installing pulumi datarobot plugin.
+    # See https://github.com/datarobot-community/pulumi-datarobot?tab=readme-ov-file#rate-limited-by-github
+    silent: true
+    # desc: "⬇️ Install DataRobot Pulumi plugins"
+    cmds:
+      - uv run pulumi plugin install resource datarobot v0.10.23 --server https://github.com/datarobot-community/pulumi-datarobot/releases/download/v0.10.23/
+
+  auth-check:
+    silent: true
+    desc: "🔐 Check authentication prerequisites"
+    cmds:
+      - |
+        if command -v dr &> /dev/null && dr auth help 2>&1 | grep -q "check"; then
+          echo "🔐 Checking authentication.."
+          dr auth check
+        else
+          echo "ℹ️  Skipping auth check (not available)"
+        fi
+
   install:
     desc: "🔧 Install dependencies"
     cmds:
       - echo "🔧 Installing dependencies.."
       - uv sync --all-extras --dev
+
+  start:
+    silent: true
+    desc: "💻 Deploy backing infrastructure"
+    deps:
+      - auth-check
+    cmds:
+      - task: deploy-dev
 
   lint:
     silent: true
@@ -40,28 +67,38 @@ tasks:
 
   up:
     silent: true
-    aliases: [deploy]
+    aliases:
+      - deploy
     desc: "🔨 Deploy the infrastructure"
+    deps:
+      - auth-check
     cmds:
+      - task: install-pulumi-plugin
       - echo "🔨 Deploying the infrastructure.."
-      - uv run pulumi up
+      - export PULUMI_SKIP_UPDATE_CHECK=1 && uv run pulumi up
 
   info:
     silent: true
     desc: "ℹ️ Show Pulumi stack info"
     cmds:
-      - uv run pulumi stack
+      - task: install-pulumi-plugin
+      - export PULUMI_SKIP_UPDATE_CHECK=1 && uv run pulumi stack
 
   down:
     silent: true
-    aliases: [destroy]
+    aliases:
+      - destroy
     desc: "💥 Destroy the deployed infrastructure"
+    deps:
+      - auth-check
     cmds:
+      - task: install-pulumi-plugin
       - echo "💥 Destroying the infrastructure.."
-      - uv run pulumi down
+      - export PULUMI_SKIP_UPDATE_CHECK=1 && uv run pulumi down
 
   copyright:
-    aliases: [license]
+    aliases:
+      - license
     desc: 📜 Apply license headers
     cmds:
       - echo "📜 Applying license headers"
@@ -69,9 +106,27 @@ tasks:
         -v info -c .licenserc.yaml header fix
 
   copyright-check:
-    aliases: [license-check]
+    aliases:
+      - license-check
     desc: 📜 Checking for license headers
     cmds:
       - echo "📜 Checking license headers"
       - docker run  --rm -v $PWD:/github/workspace ghcr.io/apache/skywalking-eyes/license-eye:eb0e0b091ea41213f712f622797e37526ca1e5d6
         -v info -c .licenserc.yaml header check
+
+  deploy-dev:
+    silent: true
+    aliases: [up-dev]
+    desc: "🔨 Deploy the backend infrastructure"
+    cmds:
+      - task: install-pulumi-plugin
+      - echo "🔨 Deploying the backend infrastructure.."
+      - |
+        export PULUMI_SKIP_UPDATE_CHECK=1 && uv run pulumi up -y \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/deployment:Deployment::*LLM Blueprint Deployment*' \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/predictionEnvironment:PredictionEnvironment::*' \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/useCase:UseCase::*' \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/customModel:CustomModel::*LLM Blueprint Model*' \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/apiTokenCredential:ApiTokenCredential::*' \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/llmBlueprint:LlmBlueprint::]' \
+          --target 'urn:pulumi:*::agentic-writer::datarobot:index/appOauth:AppOauth::'

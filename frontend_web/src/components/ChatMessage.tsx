@@ -1,25 +1,11 @@
 import { User, Bot, Cog, Hammer } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type {
-  ContentPart,
-  MessageContent,
-  TextUIPart,
-  ToolInvocationUIPart,
-} from '@/types/message';
+import type { ContentPart, TextUIPart, ToolInvocationUIPart } from '@/types/message';
 import { memo, useMemo } from 'react';
 import { useChatContext } from '@/hooks/use-chat-context';
 import ReactMarkdown from 'react-markdown';
+import type { ChatMessageEvent } from '@/types/events';
 
-interface ChatMessageProps {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  createdAt: string | Date;
-  threadId?: string;
-  resourceId?: string;
-  content: MessageContent;
-  // TODO?
-  // content: MessageContent | string;
-}
 const MarkdownRegExp = /^```markdown\s*|\s*```$/g;
 
 export function UniversalContentPart({ part }: { part: ContentPart }) {
@@ -37,11 +23,7 @@ const MarkdownBlock = memo(({ block, index }: { block: string; index: number }) 
     const inner = block.replace(MarkdownRegExp, '');
     return (
       <div key={index} className="markdown-block">
-        <pre>
-          <code>
-            <ReactMarkdown>{inner}</ReactMarkdown>
-          </code>
-        </pre>
+        <ReactMarkdown>{inner}</ReactMarkdown>
       </div>
     );
   } else {
@@ -81,13 +63,12 @@ export function ToolInvocationPart({ part }: { part: ToolInvocationUIPart }) {
   return (
     <div>
       <div>Tool: {toolInvocation.toolName}</div>
-      {toolInvocation.args?.properties &&
-        Object.entries(toolInvocation.args.properties).map(([k, v]) => (
+      {toolInvocation.args &&
+        Object.entries(toolInvocation.args).map(([k, v]) => (
           <div key={k}>
             <strong>{k}:</strong> {v as string}
           </div>
         ))}
-      {toolInvocation.args?.type && <span>Type: {toolInvocation.args?.type}</span>}
     </div>
   );
 }
@@ -99,7 +80,7 @@ export function ChatMessage({
   threadId,
   resourceId,
   content,
-}: ChatMessageProps) {
+}: ChatMessageEvent) {
   let Icon = useMemo(() => {
     if (role === 'user') {
       return User;

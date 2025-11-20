@@ -59,7 +59,7 @@ class DataRobotAGUIAgent(AGUIAgent):
         try:
             message_id = str(uuid.uuid4())
 
-            yield TextMessageStartEvent(message_id=message_id)
+            text_message_started = False
 
             logger.debug("Sending request to agent's chat completion endpoint")
 
@@ -68,7 +68,9 @@ class DataRobotAGUIAgent(AGUIAgent):
             ] = await self.client.chat.completions.create(
                 **self._prepare_chat_completions_input(input)
             )
+            chunks = 0
             async for chunk in generator:
+                chunks += 1
                 if not chunk.choices:
                     continue
                 if len(chunk.choices) > 1:
@@ -76,6 +78,9 @@ class DataRobotAGUIAgent(AGUIAgent):
 
                 choice = chunk.choices[0]
                 if choice.delta.content:
+                    if not text_message_started:
+                        yield TextMessageStartEvent(message_id=message_id)
+                        text_message_started = True
                     yield TextMessageContentEvent(
                         message_id=message_id, delta=choice.delta.content
                     )
@@ -91,10 +96,15 @@ class DataRobotAGUIAgent(AGUIAgent):
                             else None,
                             parent_message_id=message_id,
                         )
+            if chunks == 0:
+                raise RuntimeError(
+                    "No response received from the agent. Please check if agent supports streaming."
+                )
 
             logger.debug("Processed all chat completions")
 
-            yield TextMessageEndEvent(message_id=message_id)
+            if text_message_started:
+                yield TextMessageEndEvent(message_id=message_id)
 
             yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
 

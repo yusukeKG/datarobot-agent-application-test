@@ -1,14 +1,34 @@
 ---
 version: '3'
 tasks:
+
+  auth-check:
+    silent: true
+    desc: "🔐 Check authentication prerequisites"
+    cmds:
+      - |
+        if command -v dr &> /dev/null && dr auth help 2>&1 | grep -q "check"; then
+          echo "🔐 Checking authentication.."
+          dr auth check
+        else
+          echo "ℹ️  Skipping auth check (not available)"
+        fi
+
   install:
     desc: 🔧 Install dependencies
     cmds:
       - echo "🔧 Installing dependencies.."
       - uv sync --all-extras --dev
+  start:
+    silent: true
+    desc: "💻 Installing prior to start"
+    cmds:
+      - task: migrate
   dev:
     silent: true
-    desc: 🔨 Run the development server
+    desc: "🔨 Run the development server"
+    deps:
+      - auth-check
     cmds:
       - echo "🔨 Starting development server"
       - uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload

@@ -14,6 +14,7 @@
 import logging
 from typing import TYPE_CHECKING, Awaitable, Callable, Final
 
+from authlib.jose import jwt
 from datarobot.auth.oauth import OAuthToken, Profile
 from datarobot.auth.session import AuthCtx
 from datarobot.auth.typing import Metadata
@@ -37,6 +38,10 @@ if TYPE_CHECKING:
 
 
 AUTH_SESS_KEY: Final[str] = "auth"
+
+AUTH_CTX_HEADER: Final[str] = "X-DataRobot-Authorization-Context"
+DEFAULT_JWT_ALGORITHM: Final[str] = "HS256"
+
 
 logger = logging.getLogger(name=__name__)
 
@@ -258,3 +263,28 @@ def get_access_token(
         return await oauth_tokens.get_access_token(identity)
 
     return _get_access_token
+
+
+def get_auth_ctx_header(
+    auth_ctx: AuthCtx[Metadata],
+    session_secret_key: str,
+    algorithm: str = DEFAULT_JWT_ALGORITHM,
+) -> dict[str, str]:
+    """
+    Encodes the AuthCtx into a JWT to be sent via X-DataRobot-Authorization-Context header.
+
+    Args:
+        auth_ctx: The authentication context to encode
+        session_secret_key: The secret key used for JWT signing
+        algorithm: The JWT algorithm to use (default: HS256)
+
+    Returns:
+        A dictionary with the authorization header
+    """
+    jwt_token = jwt.encode(
+        header={"alg": algorithm},
+        payload=auth_ctx.model_dump(),
+        key=session_secret_key,
+    ).decode("utf-8")
+
+    return {AUTH_CTX_HEADER: jwt_token}

@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from pathlib import Path
 import re
 import shutil
-from typing import cast
+from typing import cast, Final, Optional, Any, Sequence
+import yaml
 
 import datarobot as dr
 import pulumi
 import pulumi_datarobot
+from datarobot_pulumi_utils.pulumi import export
 from datarobot_pulumi_utils.pulumi.custom_model_deployment import CustomModelDeployment
 from datarobot_pulumi_utils.pulumi.stack import PROJECT_NAME
 from datarobot_pulumi_utils.schema.custom_models import (
@@ -26,6 +29,7 @@ from datarobot_pulumi_utils.schema.custom_models import (
     RegisteredModelArgs,
 )
 from datarobot_pulumi_utils.schema.exec_envs import RuntimeEnvironments
+
 
 from . import project_dir, use_case
 
@@ -67,7 +71,57 @@ writer_agent_asset_name: str = f"[{PROJECT_NAME}] [writer_agent]"
 writer_agent_application_path = project_dir.parent / "writer_agent"
 
 
-def get_custom_model_files(custom_model_folder: str) -> list[tuple[str, str]]:
+def _generate_metadata_yaml(
+    agent_name: str,
+    custom_model_folder: str,
+    runtime_parameter_values: Sequence[
+        pulumi_datarobot.CustomModelRuntimeParameterValueArgs
+    ],
+) -> None:
+    """Generate model-metadata.yaml file from scratch with runtime parameters.
+
+    Args:
+        agent_name: Name of the agent
+        custom_model_folder: Path to the custom model folder
+        runtime_parameter_values: List of runtime parameter definitions
+
+    Raises:
+        OSError: If unable to write the metadata file
+    """
+    metadata = {
+        "name": agent_name,
+        "type": "inference",
+        "targetType": "agenticworkflow",
+        "runtimeParameterDefinitions": [
+            {"fieldName": param.key, "type": param.type}
+            for param in runtime_parameter_values
+        ]
+        or [],
+    }
+
+    # Write the file using yaml library for proper formatting
+    metadata_output_path = Path(custom_model_folder) / "model-metadata.yaml"
+    metadata_output_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_output_path.write_text(
+        yaml.dump(
+            metadata, default_flow_style=False, sort_keys=False, explicit_start=True
+        ),
+        encoding="utf-8",
+    )
+
+
+def get_custom_model_files(
+    custom_model_folder: str,
+    runtime_parameter_values: Sequence[
+        pulumi_datarobot.CustomModelRuntimeParameterValueArgs
+    ],
+) -> list[tuple[str, str]]:
+    # generate model-metadata.yaml file in the custom model folder
+    _generate_metadata_yaml(
+        agent_name="writer_agent",
+        custom_model_folder=custom_model_folder,
+        runtime_parameter_values=runtime_parameter_values,
+    )
     # Get all files from application path, following symlinks
     # When we've upgraded to Python 3.13 we can use Path.glob(reduce_symlinks=True)
     # https://docs.python.org/3.13/library/pathlib.html#pathlib.Path.glob
@@ -124,6 +178,108 @@ def synchronize_pyproject_dependencies():
         if os.path.exists(uv_lock_path):
             docker_context_uv_lock_path = os.path.join(docker_context_folder, "uv.lock")
             shutil.copy2(uv_lock_path, docker_context_uv_lock_path)
+
+
+def maybe_import_from_module(module: str, object_name: str) -> Optional[Any]:
+    """Attempt to import an object from a module.
+
+    Args:
+        module: The module name to import from (can include relative imports like ".module_name")
+        object_name: The name of the object to import from the module
+
+    Returns:
+        The imported object if successful, None otherwise
+    """
+    if not module:
+        return None
+
+    try:
+        import importlib
+
+        # Ensure relative import format
+        module_path = module if module.startswith(".") else f".{module}"
+        imported_module = importlib.import_module(module_path, package=__package__)
+        return getattr(imported_module, object_name, None)
+    except (ImportError, AttributeError):
+        return None
+
+
+def get_mcp_runtime_parameters_from_env() -> list[
+    pulumi_datarobot.CustomModelRuntimeParameterValueArgs
+]:
+    mcp_runtime_parameters: list[
+        pulumi_datarobot.CustomModelRuntimeParameterValueArgs
+    ] = []
+
+    # Add MCP runtime parameters if configured
+    if os.environ.get("MCP_DEPLOYMENT_ID"):
+        mcp_deployment_id = os.environ["MCP_DEPLOYMENT_ID"]
+        mcp_runtime_parameters.append(
+            pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+                key="MCP_DEPLOYMENT_ID",
+                type="string",
+                value=mcp_deployment_id,
+            )
+        )
+        pulumi.info(f"MCP configured with DataRobot MCP Server: {mcp_deployment_id}")
+
+    # Allow external mcp server. Currently, code will use MCP_DEPLOYMENT_ID first and if that is empty
+    # then use the EXTERNAL_MCP_URL
+    if os.environ.get("EXTERNAL_MCP_URL"):
+        external_mcp_url = os.environ["EXTERNAL_MCP_URL"].rstrip("/")
+        mcp_runtime_parameters.append(
+            pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+                key="EXTERNAL_MCP_URL",
+                type="string",
+                value=external_mcp_url,
+            )
+        )
+        pulumi.info(f"MCP configured with external server: {external_mcp_url}")
+
+    # Add optional EXTERNAL_MCP_HEADERS
+    external_mcp_headers = os.environ.get("EXTERNAL_MCP_HEADERS")
+    if external_mcp_headers:
+        mcp_runtime_parameters.append(
+            pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+                key="EXTERNAL_MCP_HEADERS",
+                type="string",
+                value=external_mcp_headers,
+            )
+        )
+        pulumi.info(f"External MCP configured with headers: {external_mcp_headers}")
+
+    # Add optional EXTERNAL_MCP_TRANSPORT parameter
+    external_mcp_transport = os.environ.get("EXTERNAL_MCP_TRANSPORT")
+    if external_mcp_transport:
+        external_mcp_transport = os.environ["EXTERNAL_MCP_TRANSPORT"]
+        mcp_runtime_parameters.append(
+            pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+                key="EXTERNAL_MCP_TRANSPORT",
+                type="string",
+                value=external_mcp_transport,
+            )
+        )
+        pulumi.info(f"External MCP configured with transport: {external_mcp_transport}")
+
+    return mcp_runtime_parameters
+
+
+def get_mcp_custom_model_runtime_parameters() -> list[
+    pulumi_datarobot.CustomModelRuntimeParameterValueArgs
+]:
+    """
+    Load MCP runtime parameters from the MCP Deployment module if available,
+    otherwise fall back to environment variables.
+    """
+    mcp_module = "mcp_server"
+
+    mcp_params = maybe_import_from_module(
+        mcp_module, "mcp_custom_model_runtime_parameters"
+    )
+    if mcp_params is not None:
+        return mcp_params
+
+    return get_mcp_runtime_parameters_from_env()
 
 
 synchronize_pyproject_dependencies()
@@ -184,21 +340,55 @@ else:
             use_cases=writer_agent_exec_env_use_cases,
         )
 
+# Prepare runtime parameters for agent custom model deployment
+agent_runtime_parameter_values: list[
+    pulumi_datarobot.CustomModelRuntimeParameterValueArgs
+] = [] + llm_custom_model_runtime_parameters + get_mcp_custom_model_runtime_parameters()
+
+# Handle session secret key credential
+SESSION_SECRET_KEY: Final[str] = "SESSION_SECRET_KEY"
+
+if session_secret_key := os.environ.get(SESSION_SECRET_KEY):
+    pulumi.export(SESSION_SECRET_KEY, session_secret_key)
+    session_secret_cred = pulumi_datarobot.ApiTokenCredential(
+        writer_agent_asset_name + " Session Secret Key",
+        args=pulumi_datarobot.ApiTokenCredentialArgs(api_token=str(session_secret_key)),
+    )
+    agent_runtime_parameter_values.append(
+        pulumi_datarobot.CustomModelRuntimeParameterValueArgs(
+            type="credential",
+            key=SESSION_SECRET_KEY,
+            value=session_secret_cred.id,
+        ),
+    )
+
+base_environment_version_id: str | pulumi.Output[str] = (
+    writer_agent_execution_environment.version_id
+)
+pinned_version_id = os.environ.get(
+    "DATAROBOT_DEFAULT_EXECUTION_ENVIRONMENT_VERSION_ID", ""
+)
+if pinned_version_id and re.match("^[a-f\d]{24}$", pinned_version_id):
+    base_environment_version_id = pinned_version_id
+
 writer_agent_custom_model_files = get_custom_model_files(
-    str(os.path.join(str(writer_agent_application_path), "custom_model"))
+    custom_model_folder=str(
+        os.path.join(str(writer_agent_application_path), "custom_model")
+    ),
+    runtime_parameter_values=agent_runtime_parameter_values,
 )
 
 writer_agent_custom_model = pulumi_datarobot.CustomModel(
     resource_name=writer_agent_asset_name + " Custom Model",
     name=writer_agent_asset_name + " Custom Model",
     base_environment_id=writer_agent_execution_environment.id,
-    base_environment_version_id=writer_agent_execution_environment.version_id,
+    base_environment_version_id=base_environment_version_id,
     target_type="AgenticWorkflow",
     target_name="response",
     language="python",
     use_case_ids=[use_case.id],
     files=writer_agent_custom_model_files,
-    runtime_parameter_values=llm_custom_model_runtime_parameters,
+    runtime_parameter_values=agent_runtime_parameter_values,
 )
 
 writer_agent_custom_model_endpoint = writer_agent_custom_model.id.apply(
@@ -252,7 +442,6 @@ pulumi.export("Agent Playground URL " + writer_agent_asset_name, writer_agent_pl
 
 writer_agent_agent_deployment_id: pulumi.Output[str] = cast(pulumi.Output[str], "None")
 writer_agent_deployment_endpoint: pulumi.Output[str] = cast(pulumi.Output[str], "None")
-
 if os.environ.get("AGENT_DEPLOY") != "0":
     writer_agent_prediction_environment = pulumi_datarobot.PredictionEnvironment(
         resource_name=writer_agent_asset_name + " Prediction Environment",
@@ -300,18 +489,17 @@ if os.environ.get("AGENT_DEPLOY") != "0":
     writer_agent_deployment_endpoint = writer_agent_agent_deployment.id.apply(
         lambda id: f"{os.getenv('DATAROBOT_ENDPOINT')}/deployments/{id}"
     )
-    writer_agent_deployment_endpoint_chat_completions = (
-        writer_agent_deployment_endpoint.apply(
-            lambda endpoint: f"{endpoint}/chat/completions"
-        )
+    writer_agent_deployment_completions_endpoint = writer_agent_agent_deployment.id.apply(
+        lambda id: f"{os.getenv('DATAROBOT_ENDPOINT')}/deployments/{id}/chat/completions"
     )
-    pulumi.export(
+
+    export(
         writer_agent_application_name.upper() + "_DEPLOYMENT_ID",
         writer_agent_agent_deployment.id,
     )
     pulumi.export(
-        "Agent Deployment Chat Completions Endpoint " + writer_agent_asset_name,
-        writer_agent_deployment_endpoint_chat_completions,
+        "Agent Deployment Chat Endpoint " + writer_agent_asset_name,
+        writer_agent_deployment_completions_endpoint,
     )
 
 writer_agent_app_runtime_parameters = [
@@ -326,28 +514,3 @@ writer_agent_app_runtime_parameters = [
         value=writer_agent_deployment_endpoint,
     ),
 ]
-
-# Add MCP runtime parameters if configured
-if os.environ.get("MCP_DEPLOYMENT_ID"):
-    mcp_deployment_id = os.environ["MCP_DEPLOYMENT_ID"]
-    writer_agent_app_runtime_parameters.append(
-        pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
-            key="MCP_DEPLOYMENT_ID",
-            type="string",
-            value=mcp_deployment_id,
-        )
-    )
-    pulumi.info(f"MCP configured with DataRobot MCP Server: {mcp_deployment_id}")
-
-# Allow external mcp server.  Currently code will use MCP_DEPLOYMENT_ID first and if that is empty
-# then use the EXTERNAL_MCP_URL
-if os.environ.get("EXTERNAL_MCP_URL"):
-    external_mcp_url = os.environ["EXTERNAL_MCP_URL"].rstrip("/")
-    writer_agent_app_runtime_parameters.append(
-        pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
-            key="EXTERNAL_MCP_URL",
-            type="string",
-            value=external_mcp_url,
-        )
-    )
-    pulumi.info(f"MCP configured with external server: {external_mcp_url}")

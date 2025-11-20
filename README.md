@@ -100,8 +100,7 @@ devcontainer exec --workspace-folder . /bin/sh
 
 ## Prepare application
 
-As the last step, do `task start` to prepare you local development environment. An interactive wizard will guide you though selection of
-configuration options
+As the last step, enter `dr start` to prepare your local development environment. An interactive wizard will guide you though selection of configuration options
 
 <details>
 
@@ -232,6 +231,12 @@ local development environment as well.
 Build the frontend:
 ```shell
 task frontend_web:build
+```
+
+Start the Mcp Server:
+
+```shell
+task mcp_server:dev
 ```
 
 Start the application:

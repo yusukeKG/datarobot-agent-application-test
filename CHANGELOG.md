@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased Changes
 
+## 11.3.0
+- Fix devcontainer not compiling Dockerfile
+- Restore missing chainlit lit.py
+- Pin pulumi version so that it doesn't encounter github rate limiting
+- Show an error message in case agent response is empty
+- Fix migrations in task start
+
+## 0.0.6
+
 ## 0.0.5
 
 ## 0.0.4

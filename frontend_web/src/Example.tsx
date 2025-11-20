@@ -1,16 +1,23 @@
 import { Chat } from '@/components/Chat';
 import { v4 as uuid } from 'uuid';
 import z from 'zod/v4';
-import { isErrorMessage } from '@/api/chat/requests';
 import { type MessageResponse } from './api/chat/types';
 import { useChatContext } from '@/hooks/use-chat-context';
-// import { ChatSidebar } from '@/components/ChatSidebar';
+import { ChatSidebar } from '@/components/ChatSidebar';
 import { useAgUiTool } from '@/hooks/use-ag-ui-tool';
 import { ChatMessages } from '@/components/ChatMessages';
 import { ChatProgress } from '@/components/ChatProgress';
 import { ChatTextInput } from '@/components/ChatTextInput';
 import { ChatError } from '@/components/ChatError';
 import { ChatMessagesMemo } from '@/components/ChatMessage';
+import {
+  isErrorStateEvent,
+  isMessageStateEvent,
+  isStepStateEvent,
+  isThinkingEvent,
+} from '@/types/events.ts';
+import { StepEvent } from '@/components/StepEvent.tsx';
+import { ThinkingEvent } from '@/components/ThinkingEvent.tsx';
 
 const initialMessages: MessageResponse[] = [
   {
@@ -21,7 +28,7 @@ const initialMessages: MessageResponse[] = [
       parts: [
         {
           type: 'text',
-          text: `Hi. I offer features that allow you to plan activities based on the weather, display customizable weather widgets, and show on-page alerts.`,
+          text: `Hi. Here you can test your agent based application.`,
         },
       ],
     },
@@ -31,16 +38,16 @@ const initialMessages: MessageResponse[] = [
 
 export function Example() {
   const {
-    // chatId,
-    // setChatId,
+    chatId,
+    setChatId,
     sendMessage,
     userInput,
     setUserInput,
-    combinedMessages,
+    combinedEvents,
     progress,
     setProgress,
     isLoadingHistory,
-    runningAgent,
+    isAgentRunning,
   } = useChatContext();
 
   useAgUiTool({
@@ -53,16 +60,24 @@ export function Example() {
   });
   return (
     <div className="chat">
-      {/*<ChatSidebar chatId={chatId} setChatId={setChatId} />*/}
+      <ChatSidebar chatId={chatId} setChatId={setChatId} />
 
       <Chat initialMessages={initialMessages}>
-        <ChatMessages isLoading={isLoadingHistory} messages={combinedMessages}>
-          {combinedMessages &&
-            combinedMessages.map(m => {
-              if (isErrorMessage(m)) {
-                return <ChatError key={m.id} message={m.error} createdAt={m.createdAt} />;
+        <ChatMessages isLoading={isLoadingHistory} messages={combinedEvents}>
+          {combinedEvents &&
+            combinedEvents.map(m => {
+              if (isErrorStateEvent(m)) {
+                return <ChatError key={m.value.id} {...m.value} />;
               }
-              return <ChatMessagesMemo key={m.id} {...(m as any)} />;
+              if (isMessageStateEvent(m)) {
+                return <ChatMessagesMemo key={m.value.id} {...m.value} />;
+              }
+              if (isStepStateEvent(m)) {
+                return <StepEvent key={m.value.id} {...m.value} />;
+              }
+              if (isThinkingEvent(m)) {
+                return <ThinkingEvent key={m.type} />;
+              }
             })}
         </ChatMessages>
         <ChatProgress progress={progress || {}} setProgress={setProgress} />
@@ -70,7 +85,7 @@ export function Example() {
           userInput={userInput}
           setUserInput={setUserInput}
           onSubmit={sendMessage}
-          runningAgent={runningAgent}
+          runningAgent={isAgentRunning}
         />
       </Chat>
     </div>

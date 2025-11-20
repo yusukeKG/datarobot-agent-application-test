@@ -1,25 +1,30 @@
 ---
-# https://taskfile.dev
 version: '3'
 env:
   ENV: testing
 dotenv: ['.env', '.env.{{.ENV}}']
 includes:
-  writer_agent:
-    taskfile: ./writer_agent/Taskfile.yml
-    dir: ./writer_agent
-  infra:
-    taskfile: ./infra/Taskfile.yaml
-    dir: ./infra
+  core:
+    taskfile: ./core/Taskfile.yaml
+    dir: ./core
   frontend_web:
     taskfile: ./frontend_web/Taskfile.yaml
     dir: ./frontend_web
-  web:
-    taskfile: ./web/Taskfile.yaml
-    dir: ./web
+  infra:
+    taskfile: ./infra/Taskfile.yaml
+    dir: ./infra
   mcp_server:
     taskfile: ./mcp_server/Taskfile.yaml
     dir: ./mcp_server
+  tests:
+    taskfile: ./tests/Taskfile.yaml
+    dir: ./tests
+  web:
+    taskfile: ./web/Taskfile.yaml
+    dir: ./web
+  writer_agent:
+    taskfile: ./writer_agent/Taskfile.yml
+    dir: ./writer_agent
 tasks:
   default:
     desc: "ℹ️ Show all available tasks (run `task --list-all` to see hidden tasks)"
@@ -30,37 +35,52 @@ tasks:
   start:
     desc: "💻 Prepare local development environment"
     cmds:
-      - dr dotenv setup
+      - dr dotenv setup --if-needed
       - task: install
+      # These need to be task <command> so that the .env vars are loaded properly
+      # - task infra:start  # This adds a lot of startup time
+      - task web:start
 
   lint:
     desc: "🧹 Run linters"
     cmds:
-      - task: writer_agent:lint
-      - task: infra:lint
+      - task: core:lint
       - task: frontend_web:lint
+      - task: infra:lint
+      - task: mcp_server:lint
+      - task: tests:lint
       - task: web:lint
 
   install:
-    desc: "🛠️ Install all dependencies for agent and infra"
+    desc: "🛠️ Install all dependencies"
     cmds:
-      - task: writer_agent:install
-      - task: infra:install
+      - task: core:install
       - task: frontend_web:install
-      - task: web:install
+      - task: infra:install
       - task: mcp_server:install
+      - task: tests:install
+      - task: web:install
+      - task: writer_agent:install
 
+  test:
+    desc: "🧪 Run tests across all components"
+    cmds:
+      - task: core:test
+      - task: frontend_web:test
+      - task: mcp_server:test
+      - task: tests:test
+      - task: web:test
   dev:
-    desc: "🚀 Run agent, backend (web), mcp server and frontend together"
+    desc: "🚀 Run all services together"
     cmds:
       - |
+        task frontend_web:dev &
+        sleep 3
         task mcp_server:dev &
         sleep 3
-        task web:dev-agent &
-        sleep 5
-        task agent:dev &
+        task web:dev &
         sleep 3
-        task frontend_web:dev &
+        task writer_agent:dev &
         sleep 8
         echo "✅ All servers started!"
         if [[ -n "$NOTEBOOK_ID" ]]; then
@@ -73,11 +93,13 @@ tasks:
         echo "🔗 Agent: ${prefix}8842"
         echo "🔗 MCP Server: ${prefix}9000"
         wait
-
   deploy:
     desc: "🚀 Deploy all services"
     env:
       AGENT_DEPLOY: "1"
     cmds:
-      - task: mcp_server:install
-      - task: infra:up
+      - task: infra:deploy
+  deploy-dev:
+    desc: "🚀 Deploy infrastructure and services to development"
+    cmds:
+      - task: infra:deploy-dev

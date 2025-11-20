@@ -7,7 +7,8 @@ import type {
   ToolCallEndEvent,
 } from '@ag-ui/core';
 import { EventType } from '@ag-ui/core';
-import type { MessageResponse } from '@/api/chat/types';
+import type { ChatStateEventByType } from '@/types/events';
+import { MessageResponse } from '@/api/chat/types.ts';
 
 type AgUiTextEvent =
   | TextMessageStartEvent
@@ -148,7 +149,15 @@ export function createTextMessageFromUserInput(message: string, threadId: string
   return baseMessage;
 }
 
-export function createCustomMessageWidget({ toolCallName, toolCallArgs, threadId }: any) {
+export function createCustomMessageWidget({
+  toolCallName,
+  toolCallArgs,
+  threadId,
+}: {
+  toolCallName: string;
+  toolCallArgs: Record<string, any>;
+  threadId: string;
+}) {
   const toolInvocation = {
     state: 'call',
     toolCallId: `call_${uuid()}`,
@@ -171,4 +180,11 @@ export function createCustomMessageWidget({ toolCallName, toolCallArgs, threadId
     threadId: threadId,
     resourceId: uuid(),
   } as MessageResponse;
+}
+
+export function messageToStateEvent(message: MessageResponse): ChatStateEventByType<'message'> {
+  return {
+    type: 'message',
+    value: message,
+  };
 }

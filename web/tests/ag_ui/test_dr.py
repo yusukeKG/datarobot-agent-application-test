@@ -157,7 +157,6 @@ def chat_completions(
     ]
 
 
-@pytest.mark.asyncio
 async def test_run_empty_response(
     set_completions: Callable[[list[ChoiceDelta]], None],
     dr_agui_agent: DataRobotAGUIAgent,
@@ -169,13 +168,12 @@ async def test_run_empty_response(
         result = await run(dr_agui_agent)
         assert result == [
             RunStartedEvent(thread_id="thread", run_id="run"),
-            TextMessageStartEvent(message_id=stub_uuid),
-            TextMessageEndEvent(message_id=stub_uuid),
-            RunFinishedEvent(thread_id="thread", run_id="run"),
+            RunErrorEvent(
+                message="No response received from the agent. Please check if agent supports streaming."
+            ),
         ]
 
 
-@pytest.mark.asyncio
 async def test_run_failed_response(
     error_completions: Callable[[BaseException], None],
     dr_agui_agent: DataRobotAGUIAgent,
@@ -188,12 +186,10 @@ async def test_run_failed_response(
         result = await run(dr_agui_agent)
         assert result == [
             RunStartedEvent(thread_id="thread", run_id="run"),
-            TextMessageStartEvent(message_id=stub_uuid),
             RunErrorEvent(message="Error"),
         ]
 
 
-@pytest.mark.asyncio
 async def test_run_single_message(
     set_completions: Callable[[list[ChatCompletionChunk]], None],
     dr_agui_agent: DataRobotAGUIAgent,
@@ -214,7 +210,6 @@ async def test_run_single_message(
         ]
 
 
-@pytest.mark.asyncio
 async def test_run_complex(
     set_completions: Callable[[list[ChatCompletionChunk]], None],
     dr_agui_agent: DataRobotAGUIAgent,

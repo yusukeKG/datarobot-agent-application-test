@@ -1,13 +1,20 @@
 import { type PropsWithChildren, useEffect, useRef } from 'react';
-import { isErrorMessage } from '@/api/chat/requests';
-import { type MessageResponse } from '@/api/chat/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChatMessagesMemo } from '@/components/ChatMessage';
 import { ChatError } from '@/components/ChatError';
+import {
+  isErrorStateEvent,
+  isMessageStateEvent,
+  isStepStateEvent,
+  type ChatStateEvent,
+  isThinkingEvent,
+} from '@/types/events';
+import { StepEvent } from '@/components/StepEvent';
+import { ThinkingEvent } from '@/components/ThinkingEvent.tsx';
 
 export type ChatMessageProps = {
   isLoading: boolean;
-  messages?: MessageResponse[];
+  messages?: ChatStateEvent[];
 } & PropsWithChildren;
 
 export function ChatMessages({ children, messages, isLoading }: ChatMessageProps) {
@@ -20,7 +27,7 @@ export function ChatMessages({ children, messages, isLoading }: ChatMessageProps
   }, [messages]);
 
   return (
-    <div className="messages" ref={scrollContainerRef}>
+    <div className="messages gap-2" ref={scrollContainerRef}>
       {isLoading ? (
         <div className="p-4 space-y-4">
           <Skeleton className="h-20 w-full" />
@@ -31,10 +38,18 @@ export function ChatMessages({ children, messages, isLoading }: ChatMessageProps
         children ||
         (messages &&
           messages.map(m => {
-            if (isErrorMessage(m)) {
-              return <ChatError key={m.id} message={m.error} createdAt={m.createdAt} />;
+            if (isErrorStateEvent(m)) {
+              return <ChatError key={m.value.id} {...m.value} />;
             }
-            return <ChatMessagesMemo key={m.id} {...(m as any)} />;
+            if (isMessageStateEvent(m)) {
+              return <ChatMessagesMemo key={m.value.id} {...m.value} />;
+            }
+            if (isStepStateEvent(m)) {
+              return <StepEvent key={m.value.id} {...m.value} />;
+            }
+            if (isThinkingEvent(m)) {
+              return <ThinkingEvent key={m.type} />;
+            }
           }))
       )}
     </div>

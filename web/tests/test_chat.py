@@ -34,9 +34,15 @@ from ag_ui.core import (
     RunStartedEvent,
     UserMessage,
 )
+from authlib.jose import jwt
+from datarobot.auth.identity import Identity
+from datarobot.auth.session import AuthCtx
+from datarobot.auth.typing import Metadata
+from datarobot.auth.users import User as AuthUser
 from fastapi.testclient import TestClient
 from httpx_sse import connect_sse
 
+from app.auth.ctx import AUTH_CTX_HEADER, get_auth_ctx_header
 from app.chats import Chat, ChatRepository
 from app.deps import Deps
 from app.messages import Message, Role
@@ -135,8 +141,33 @@ def test_user() -> User:
     )
 
 
+@pytest.fixture
+def sample_auth_ctx(test_user: User) -> AuthCtx[Metadata]:
+    """Fixture to create a test auth context."""
+    return AuthCtx(
+        user=AuthUser(
+            id=str(test_user.id),
+            email=test_user.email,
+        ),
+        identities=[
+            Identity(
+                id="test-identity-id",
+                type="oauth2",
+                provider_type="google",
+                provider_user_id="google-user-123",
+            )
+        ],
+        metadata={"dr_ctx": {"email": test_user.email}},
+    )
+
+
+@pytest.fixture
+def session_secret_key() -> str:
+    """Fixture for a test session secret key."""
+    return "test-secret-key-for-jwt-signing"
+
+
 # Basic chat tests
-@pytest.mark.asyncio
 async def test_new_chat(
     deps: Deps,
     authenticated_client: TestClient,
@@ -268,7 +299,6 @@ def test_delete_chat_not_found(
 
 
 # Chat repository tests
-@pytest.mark.asyncio
 async def test_chat_repository_delete_chat_success(sample_chat: Chat) -> None:
     """Test ChatRepository.delete_chat method directly."""
     mock_session = AsyncMock()
@@ -288,7 +318,6 @@ async def test_chat_repository_delete_chat_success(sample_chat: Chat) -> None:
     mock_session.commit.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_chat_repository_delete_chat_not_found() -> None:
     """Test ChatRepository.delete_chat when chat doesn't exist."""
     mock_session = AsyncMock()
@@ -308,3 +337,43 @@ async def test_chat_repository_delete_chat_not_found() -> None:
     mock_session.exec.assert_called_once()
     mock_session.delete.assert_not_called()
     mock_session.commit.assert_not_called()
+
+
+def test_get_auth_ctx_header_creates_valid_jwt(
+    sample_auth_ctx: AuthCtx[Metadata], session_secret_key: str
+) -> None:
+    """Test that get_auth_ctx_header creates a valid JWT token in the correct header."""
+    result = get_auth_ctx_header(sample_auth_ctx, session_secret_key)
+
+    # Verify header structure
+    assert AUTH_CTX_HEADER in result
+    assert isinstance(result[AUTH_CTX_HEADER], str)
+
+    # Verify JWT can be decoded
+    decoded = jwt.decode(result[AUTH_CTX_HEADER], session_secret_key)
+    decoded.validate()
+
+    # Verify payload contains auth context data
+    assert decoded["user"]["email"] == sample_auth_ctx.user.email
+    assert decoded["user"]["id"] == sample_auth_ctx.user.id
+    assert len(decoded["identities"]) == len(sample_auth_ctx.identities)
+    assert decoded["metadata"] == sample_auth_ctx.metadata
+
+
+def test_get_auth_ctx_header_with_custom_algorithm(
+    sample_auth_ctx: AuthCtx[Metadata], session_secret_key: str
+) -> None:
+    """Test that get_auth_ctx_header supports custom JWT algorithms."""
+    custom_algorithm = "HS512"
+    result = get_auth_ctx_header(
+        sample_auth_ctx, session_secret_key, algorithm=custom_algorithm
+    )
+
+    # Verify the token can be decoded and validated with the custom algorithm
+    token = result[AUTH_CTX_HEADER]
+    decoded = jwt.decode(token, session_secret_key)
+    decoded.validate()
+
+    # Verify payload is correct
+    assert decoded["user"]["email"] == sample_auth_ctx.user.email
+    assert decoded["user"]["id"] == sample_auth_ctx.user.id

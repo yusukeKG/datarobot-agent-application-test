@@ -1,4 +1,5 @@
-import type { ZodType } from 'zod/v4';
+'use client';
+import z, { type ZodType } from 'zod/v4';
 import type { ReactElement } from 'react';
 
 export const ToolStatus = {
@@ -6,13 +7,13 @@ export const ToolStatus = {
   COMPLETE: 'complete',
 } as const;
 
-export interface ToolState<Shape extends Record<any, any>> {
+export interface ToolState<Shape extends Record<string, unknown>> {
   status: (typeof ToolStatus)[keyof typeof ToolStatus];
   args: Shape;
-  callback?: (response: any) => any;
+  callback?: (response: unknown) => void | unknown;
 }
 
-export interface Tool<Shape extends Record<any, any>> {
+export interface Tool<Shape extends Record<string, unknown> = Record<string, unknown>> {
   /**
    * Unique name
    */
@@ -40,6 +41,6 @@ export interface Tool<Shape extends Record<any, any>> {
 export interface ToolSerialized {
   name: string;
   description: string;
-  parameters: any;
+  parameters: z.core.JSONSchema.JSONSchema;
   enabled?: boolean;
 }

@@ -1,5 +1,11 @@
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
-import { deleteChat, getChatHistory, getChats, type PaginationInfo } from '@/api/chat/requests';
+import {
+  deleteChat,
+  getChatHistory,
+  getChats,
+  updateChat,
+  type PaginationInfo,
+} from '@/api/chat/requests';
 import { chatsKeys } from '@/api/chat/keys';
 import { selectChats, selectMessages } from '@/api/chat/selectors';
 
@@ -16,6 +22,13 @@ export function useFetchChats() {
 export function useDeleteChat() {
   return useMutation({
     mutationFn: ({ chatId }: { chatId: string }) => deleteChat({ chatId }),
+  });
+}
+
+export function useUpdateChat() {
+  return useMutation({
+    mutationFn: ({ chatId, name }: { chatId: string; name: string }) =>
+      updateChat({ chatId, name }),
   });
 }
 

@@ -1,12 +1,8 @@
 import { AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { ChatErrorEvent } from '@/types/events';
 
-interface ChatErrorProps {
-  message: string;
-  createdAt: string | Date;
-}
-
-export function ChatError({ message, createdAt }: ChatErrorProps) {
+export function ChatError({ error, createdAt }: ChatErrorEvent) {
   // Convert createdAt to Date if it's a string
   const date = typeof createdAt === 'string' ? new Date(createdAt) : createdAt;
 
@@ -29,7 +25,7 @@ export function ChatError({ message, createdAt }: ChatErrorProps) {
           <span className="text-sm font-medium text-destructive">Error</span>
           <span className="text-xs text-muted-foreground">{date.toLocaleTimeString()}</span>
         </div>
-        <div className="text-sm whitespace-pre-wrap break-words text-destructive">{message}</div>
+        <div className="text-sm whitespace-pre-wrap break-words text-destructive">{error}</div>
       </div>
     </div>
   );

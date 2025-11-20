@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
-import type { ChatResponse } from '@/api/chat/types';
+import type { ChatListItem } from '@/api/chat/types';
 import { useDeleteChat, useFetchChats } from '@/api/chat';
 
 export type UseChatListParams = { chatId: string; setChatId: (id: string) => void };
 
 export function useChatList({ chatId, setChatId }: UseChatListParams) {
-  const [newChat, setNewChat] = useState<ChatResponse | null>(null);
-  const newChatRef = useRef<ChatResponse | null>(null);
+  const [newChat, setNewChat] = useState<ChatListItem | null>(null);
+  const newChatRef = useRef<ChatListItem | null>(null);
 
   const { mutateAsync: deleteChatMutation } = useDeleteChat();
   const { data: chats, isLoading: isLoadingChats, refetch } = useFetchChats();
@@ -40,16 +40,16 @@ export function useChatList({ chatId, setChatId }: UseChatListParams) {
     const newChatID = uuid();
     setNewChat({
       id: newChatID,
-      title: name,
-      resourceId: '',
+      name: name,
+      userId: '',
       createdAt: new Date(),
-      updatedAt: new Date(),
+      updatedAt: null,
     });
     return newChatID;
   };
 
   const deleteChat = (chatId: string) => {
-    return deleteChatMutation({ chatId }).then(refetch);
+    return deleteChatMutation({ chatId }).then(() => refetch());
   };
 
   useEffect(() => {
