@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased Changes
 
+## 11.3.4
+- Add versions file
+
 ## 11.3.3
 - Fix the root Taskfile
 

@@ -58,7 +58,7 @@ For detailed installation steps, see [Installation instructions](https://docs.da
 
 | Tool         | Version    | Description                     | Installation guide            |
 |--------------|------------|---------------------------------|-------------------------------|
-| **dr-cli**   | >= 0.2.12  | The DataRobot CLI.              | [dr-cli installation guide](https://github.com/datarobot-oss/cli?tab=readme-ov-file#installation) |
+| **dr-cli**   | >= 0.2.17  | The DataRobot CLI.              | [dr-cli installation guide](https://github.com/datarobot-oss/cli?tab=readme-ov-file#installation) |
 | **git**      | >= 2.30.0  | A version control system.       | [git installation guide](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) |
 | **uv**       | >= 0.6.10  | A Python package manager.       | [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/)                  |
 | **Pulumi**   | >= 3.163.0 | An Infrastructure as Code tool. | [Pulumi installation guide](https://www.pulumi.com/docs/iac/download-install/)              |
