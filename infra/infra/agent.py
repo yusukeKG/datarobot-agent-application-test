@@ -268,7 +268,7 @@ def get_mcp_custom_model_runtime_parameters() -> list[
     Load MCP runtime parameters from the MCP Deployment module if available,
     otherwise fall back to environment variables.
     """
-    mcp_module = "mcp_server"
+    mcp_module = ""
 
     mcp_params = maybe_import_from_module(
         mcp_module, "mcp_custom_model_runtime_parameters"

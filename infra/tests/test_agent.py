@@ -40,7 +40,7 @@ def pulumi_mocks(monkeypatch, tmp_path):
     # interface required for this module.
     mock_mcp_module = MagicMock()
     mock_mcp_module.mcp_custom_model_runtime_parameters = []
-    monkeypatch.setitem(sys.modules, "infra.mcp_server", mock_mcp_module)
+    monkeypatch.setitem(sys.modules, "infra.", mock_mcp_module)
     # Mock pulumi_datarobot resources
     monkeypatch.setattr("pulumi_datarobot.ExecutionEnvironment", MagicMock())
     monkeypatch.setattr("pulumi_datarobot.CustomModel", MagicMock())
@@ -653,7 +653,7 @@ class TestMaybeImportFromModule:
     @pytest.fixture
     def skip_if_no_fastmcp(self):
         """Skip tests if fastmcp module is not available."""
-        mcp_module = "mcp_server"
+        mcp_module = ""
         if not mcp_module:
             pytest.skip("Skipping tests of existing MCP when module is not provided.")
 
@@ -664,7 +664,7 @@ class TestMaybeImportFromModule:
 
         # The fixture sets up the mocked MCP module with mcp_custom_model_runtime_parameters
         result = agent_infra.maybe_import_from_module(
-            "mcp_server", "mcp_custom_model_runtime_parameters"
+            "", "mcp_custom_model_runtime_parameters"
         )
         assert result is not None
 
@@ -680,7 +680,7 @@ class TestMaybeImportFromModule:
 
         # Attempt to import from the non-existent module
         result = agent_infra.maybe_import_from_module(
-            "mcp_server", "mcp_custom_model_runtime_parameters"
+            "", "mcp_custom_model_runtime_parameters"
         )
         assert result is None
 

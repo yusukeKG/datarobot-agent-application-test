@@ -1,11 +1,18 @@
 ---
 # https://taskfile.dev
 version: '3'
-includes:
-  common:
-    taskfile: ../core/task-common.yaml
-    internal: true
-
+vars:
+  # Cross-platform environment cleaning - uses 'env -u' on Unix systems, falls back to empty string on Windows
+  UV_CMD:
+    sh: |
+      # This command ensures compatibility with codespaces environments
+      # Cross-platform environment cleaning - uses 'env -u' on Unix systems,
+      # falls back to empty string on Windows
+      if command -v env >/dev/null 2>&1; then
+        echo "env -u PYTHONPATH -u VIRTUAL_ENV uv"
+      else
+        echo "uv"
+      fi
 tasks:
   install:
     desc: 🛠️ Install agent uv dependencies
@@ -16,11 +23,6 @@ tasks:
       - if [ -f uv.lock ] && [ -d docker_context ]; then cp uv.lock docker_context/uv.lock; fi
     aliases:
       - req
-  uninstall:
-    desc: "🔧 Uninstall dependencies"
-    cmds:
-      - echo "🔧 Uninstalling dependencies.."
-      - rm -rf .venv
   update:
     # Hidden to avoid showing in task list, run `task --list-all` to see it
     # desc: 🛠️ Update local dependencies (refresh uv locks)
@@ -157,7 +159,13 @@ tasks:
     desc: 🛑 Stop the development server
     cmds:
       - echo "Stopping development server"
-      - pkill -f 'python dev\.py --autoreload' 2>/dev/null || echo "No development server process found"
+      - pkill -f '{{.UV_CMD}} run python dev.py' 2>/dev/null || echo "No development server process found"
+  chainlit:
+    desc: "🛝 Run the ChainLit playground"
+    cmds:
+      - echo "🛝 Starting ChainLit playground"
+      - "{{.UV_CMD}} sync --all-extras"
+      - "{{.UV_CMD}} run chainlit run --host 0.0.0.0 --port 8083 -w lit.py"
   create-docker-context:
     desc: 🐳 Create the template for a local docker_context image
     vars:

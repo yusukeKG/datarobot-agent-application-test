@@ -17,7 +17,7 @@
 # isort: off
 from datarobot_genai.core.telemetry_agent import instrument
 
-instrument(framework="langgraph")
+instrument(framework="crewai")
 # ruff: noqa: E402
 from agent import MyAgent
 from config import Config

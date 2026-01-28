@@ -11,59 +11,70 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from datetime import datetime
-from typing import Any
+from typing import Any, List, Optional, Union
 
 from config import Config
-from datarobot_genai.core.agents import (
-    make_system_prompt,
+from crewai import LLM, Agent, Task
+from datarobot_genai.crewai.agent import (
+    build_llm,
 )
-from datarobot_genai.langgraph.agent import LangGraphAgent
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_litellm.chat_models import ChatLiteLLM
-from langgraph.graph import END, START, MessagesState, StateGraph
-from langgraph.prebuilt import create_react_agent
-
-config = Config()
+from datarobot_genai.crewai.base import CrewAIAgent
+from datarobot_genai.crewai.events import CrewAIEventListener
 
 
-class MyAgent(LangGraphAgent):
-    """MyAgent is a custom agent that uses Langgraph to plan, write, and edit content.
+class MyAgent(CrewAIAgent):
+    """MyAgent is a custom agent that uses CrewAI to plan and write content.
     It utilizes DataRobot's LLM Gateway or a specific deployment for language model interactions.
-    This example illustrates 3 agents that handle content creation tasks, including planning, writing,
-    and editing blog posts.
+    This example illustrates 2 agents that handle content creation tasks, including planning and writing
+    blog posts.
     """
 
-    @property
-    def workflow(self) -> StateGraph[MessagesState]:
-        langgraph_workflow = StateGraph[
-            MessagesState, None, MessagesState, MessagesState
-        ](MessagesState)
-        langgraph_workflow.add_node("planner_node", self.agent_planner)
-        langgraph_workflow.add_node("writer_node", self.agent_writer)
-        langgraph_workflow.add_edge(START, "planner_node")
-        langgraph_workflow.add_edge("planner_node", "writer_node")
-        langgraph_workflow.add_edge("writer_node", END)
-        return langgraph_workflow  # type: ignore[return-value]
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+        model: Optional[str] = None,
+        verbose: Optional[Union[bool, str]] = True,
+        timeout: Optional[int] = 90,
+        **kwargs: Any,
+    ):
+        """Initializes the MyAgent class with API key, base URL, model, and verbosity settings.
 
-    @property
-    def prompt_template(self) -> ChatPromptTemplate:
-        return ChatPromptTemplate.from_messages(
-            [
-                (
-                    "user",
-                    f"The topic is {{topic}}. Make sure you find any interesting and "
-                    f"relevant information given the current year is {datetime.now().year}.",
-                ),
-            ]
+        Args:
+            api_key: Optional[str]: API key for authentication with DataRobot services.
+                Defaults to None, in which case it will use the DATAROBOT_API_TOKEN environment variable.
+            api_base: Optional[str]: Base URL for the DataRobot API.
+                Defaults to None, in which case it will use the DATAROBOT_ENDPOINT environment variable.
+            model: Optional[str]: The LLM model to use.
+                Defaults to None.
+            verbose: Optional[Union[bool, str]]: Whether to enable verbose logging.
+                Accepts boolean or string values ("true"/"false"). Defaults to True.
+            timeout: Optional[int]: How long to wait for the agent to respond.
+                Defaults to 90 seconds.
+            **kwargs: Any: Additional keyword arguments passed to the agent.
+                Contains any parameters received in the CompletionCreateParams.
+
+        Returns:
+            None
+        """
+        super().__init__(
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+            verbose=verbose,
+            timeout=timeout,
+            **kwargs,
         )
+        self.config = Config()
+        self.default_model = self.config.llm_default_model
+        self.event_listener = CrewAIEventListener()
 
     def llm(
         self,
         preferred_model: str | None = None,
         auto_model_override: bool = True,
-    ) -> ChatLiteLLM:
-        """Returns the ChatLiteLLM to use for a given model.
+    ) -> LLM:
+        """Returns the LLM to use for a given model.
 
         If a `preferred_model` is provided, it will be used. Otherwise, the default model will be used.
         If auto_model_override is True, it will try and use the model specified in the request
@@ -76,62 +87,87 @@ class MyAgent(LangGraphAgent):
                 not available.
 
         Returns:
-            ChatLiteLLM: The model to use.
+            LLM: The model to use.
         """
-        api_base = self.litellm_api_base(config.llm_deployment_id)
-        model = preferred_model
-        if preferred_model is None:
-            model = config.llm_default_model
-        if auto_model_override and not config.use_datarobot_llm_gateway:
-            model = config.llm_default_model
+        model = preferred_model or self.default_model
+        if auto_model_override and not self.config.use_datarobot_llm_gateway:
+            model = self.default_model
         if self.verbose:
             print(f"Using model: {model}")
-        return ChatLiteLLM(
-            model=model,
-            api_base=api_base,
+        return build_llm(
+            api_base=self.api_base,
             api_key=self.api_key,
+            model=model,
+            deployment_id=self.config.llm_deployment_id,
             timeout=self.timeout,
-            streaming=True,
-            max_retries=3,
+        )
+
+    def make_kickoff_inputs(self, user_prompt_content: str) -> dict[str, Any]:
+        """Map the user prompt into Crew kickoff inputs expected by tasks/agents."""
+        return {"topic": str(user_prompt_content)}
+
+    @property
+    def agents(self) -> List[Agent]:
+        return [self.agent_planner, self.agent_writer]
+
+    @property
+    def tasks(self) -> List[Task]:
+        return [self.task_plan, self.task_write]
+
+    @property
+    def agent_planner(self) -> Agent:
+        """Content Planner agent."""
+        return Agent(
+            role="Planner",
+            goal="Create a simple, focused outline for {topic} with key points and sources.",
+            backstory="You create brief, structured outlines for blog articles. "
+            "You identify the most important points and cite relevant sources. "
+            "Keep it simple and to the point - this is just an outline for the writer.",
+            allow_delegation=False,
+            verbose=self.verbose,
+            llm=self.llm(preferred_model="datarobot/azure/gpt-5-mini-2025-08-07"),
+            tools=self.mcp_tools,
         )
 
     @property
-    def agent_planner(self) -> Any:
-        return create_react_agent(
-            self.llm(preferred_model="datarobot/azure/gpt-5-mini-2025-08-07"),
+    def agent_writer(self) -> Agent:
+        """Content Writer agent."""
+        return Agent(
+            role="Writer",
+            goal="Write a concise, insightful opinion piece about {topic}. Maximum 500 words.",
+            backstory="You write opinion pieces based on the planner's outline and context. "
+            "You provide objective and impartial insights backed by the planner's information. "
+            "You acknowledge when your statements are opinions versus objective facts.",
+            allow_delegation=False,
+            verbose=self.verbose,
+            llm=self.llm(preferred_model="datarobot/azure/gpt-5-mini-2025-08-07"),
             tools=self.mcp_tools,
-            prompt=make_system_prompt(
-                "You are a content planner. You create brief, structured outlines for blog articles. "
-                "You identify the most important points and cite relevant sources. Keep it simple and to the point - "
-                "this is just an outline for the writer.\n"
-                "\n"
-                "Create a simple outline with:\n"
+        )
+
+    @property
+    def task_plan(self) -> Task:
+        return Task(
+            description=(
+                "Create a simple outline for {topic} with:\n"
                 "1. 10-15 key points or facts (bullet points only, no paragraphs)\n"
                 "2. 2-3 relevant sources or references\n"
                 "3. A brief suggested structure (intro, 2-3 sections, conclusion)\n"
-                "\n"
-                "Do NOT write paragraphs or detailed explanations. Just provide a focused list.",
+                "Do NOT write paragraphs or detailed explanations. Just provide a focused list."
             ),
-            name="Planner Agent",
+            expected_output="A simple outline with 10-15 bullet points, 2-3 sources, and a basic structure. "
+            "No paragraphs or lengthy explanations.",
+            agent=self.agent_planner,
         )
 
     @property
-    def agent_writer(self) -> Any:
-        return create_react_agent(
-            self.llm(preferred_model="datarobot/azure/gpt-5-mini-2025-08-07"),
-            tools=self.mcp_tools,
-            prompt=make_system_prompt(
-                "You are a content writer working with a planner colleague.\n"
-                "You write opinion pieces based on the planner's outline and context. You provide objective and "
-                "impartial insights backed by the planner's information. You acknowledge when your statements are "
-                "opinions versus objective facts.\n"
-                "\n"
-                "1. Use the content plan to craft a compelling blog post.\n"
+    def task_write(self) -> Task:
+        return Task(
+            description=(
+                "1. Use the content plan to craft a compelling blog post on {topic}.\n"
                 "2. Structure with an engaging introduction, insightful body, and summarizing conclusion.\n"
                 "3. Sections/Subtitles are properly named in an engaging manner.\n"
-                "4. CRITICAL: Keep the total output under 500 words. Each section should have 1-2 brief paragraphs.\n"
-                "\n"
-                "Write in markdown format, ready for publication.",
+                "4. CRITICAL: Keep the total output under 500 words. Each section should have 1-2 brief paragraphs."
             ),
-            name="Writer Agent",
+            expected_output="A well-written blog post in markdown format, ready for publication. Maximum 500 words total.",
+            agent=self.agent_writer,
         )
