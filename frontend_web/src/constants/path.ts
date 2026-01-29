@@ -1,5 +1,9 @@
 export const PATHS = {
-  CHAT_PAGE: '/',
+  DASHBOARD: '/',
+  SENSORS: '/sensors',
+  ALERTS: '/alerts',
+  MAINTENANCE: '/maintenance',
+  CHAT_PAGE: '/chat',
   OAUTH_CB: '/oauth/callback',
   SETTINGS: {
     ROOT: '/settings',

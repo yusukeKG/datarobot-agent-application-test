@@ -58,3 +58,11 @@ class Config(DataRobotAppFrameworkBaseSettings):
 
     # The number of characters to stream before persisting
     minimal_chunks_to_persist: int = 5000
+
+    # Snowflake configuration
+    snowflake_account: str | None = None
+    snowflake_user: str | None = None
+    snowflake_password: str | None = None
+    snowflake_warehouse: str | None = None
+    snowflake_database: str | None = None
+    snowflake_schema: str | None = None

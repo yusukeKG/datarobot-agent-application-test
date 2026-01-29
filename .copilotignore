@@ -1,0 +1,34 @@
+# GitHub Copilot ignore patterns
+# Copilot will not read or suggest from these files
+
+# Environment files
+.env
+.env.*
+!.env.template
+!.env.example
+
+# Secrets and credentials
+secrets.json
+credentials.json
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Private configuration
+config.local.json
+settings.local.json
+
+# SSH keys
+id_rsa
+id_ed25519
+*.pub
+
+# API keys and tokens
+**/api_keys.json
+**/tokens.json

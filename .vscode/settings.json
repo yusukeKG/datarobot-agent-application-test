@@ -1,0 +1,16 @@
+{
+  "github.copilot.advanced": {
+    "excludePatterns": [
+      "**/.env",
+      "**/.env.*",
+      "**/secrets.json",
+      "**/credentials.json"
+    ]
+  },
+  "files.exclude": {
+    "**/.env": false
+  },
+  "search.exclude": {
+    "**/.env": true
+  }
+}
