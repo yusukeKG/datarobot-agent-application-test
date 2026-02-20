@@ -28,14 +28,28 @@ export function SensorsPage() {
     enabled: !!startDate && !!endDate,
   });
 
-  const chartData = pumpData?.map((item) => ({
-    timestamp: format(new Date(item.TIMESTAMP), 'MM/dd HH:mm'),
-    temperature: item.TEMPERATURE_C,
-    fluidTemperature: item.FLUID_TEMPERATURE_C,
-    pressure: item.PUMP_OUTLET_PRESSURE_MPA,
-    power: item.POWER_CONSUMPTION_KWH,
-    flow: item.PUMP_FLOW_L_PER_H,
-  }));
+  const { data: pumpDataPrediction, isLoading: isPredictionLoading } = useQuery({
+    queryKey: ['pumpDataPrediction', startDate, endDate],
+    queryFn: () => snowflakeApi.getPumpDataPrediction(startDate, endDate),
+    enabled: !!startDate && !!endDate,
+  });
+
+  const chartData = pumpData?.map((item) => {
+    // Find matching prediction data by timestamp
+    const predictionItem = pumpDataPrediction?.find(
+      (pred) => pred.TIMESTAMP === item.TIMESTAMP
+    );
+
+    return {
+      timestamp: format(new Date(item.TIMESTAMP), 'MM/dd HH:mm'),
+      temperature: item.TEMPERATURE_C,
+      fluidTemperature: item.FLUID_TEMPERATURE_C,
+      pressure: item.PUMP_OUTLET_PRESSURE_MPA,
+      power: item.POWER_CONSUMPTION_KWH,
+      powerPrediction: predictionItem?.POWER_CONSUMPTION_KWH_PREDICTION,
+      flow: item.PUMP_FLOW_L_PER_H,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -83,7 +97,7 @@ export function SensorsPage() {
       </div>
 
       {/* ローディング・エラー */}
-      {isLoading && (
+      {(isLoading || isPredictionLoading) && (
         <div className="rounded-lg border border-gray-200 bg-white p-8 text-center">
           <div className="text-gray-600">データを読み込んでいます...</div>
         </div>
@@ -130,7 +144,14 @@ export function SensorsPage() {
                   type="monotone"
                   dataKey="power"
                   stroke="#ef4444"
-                  name="電力消費量"
+                  name="電力消費量（実績）"
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="powerPrediction"
+                  stroke="#3b82f6"
+                  name="電力消費量（DataRobotによる性能予測）"
                   dot={false}
                 />
               </LineChart>

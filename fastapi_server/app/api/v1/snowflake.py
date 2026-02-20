@@ -183,3 +183,51 @@ async def get_pump_data(
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch pump data: {str(e)}"
         )
+
+
+@router.get("/pump-data-prediction", response_model=list[dict[str, Any]])
+async def get_pump_data_prediction(
+    request: Request,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """Get PUMP_SYSTEM_DATA_PREDICTION with optional date filtering.
+
+    Args:
+        request: FastAPI request object
+        start_date: Start date in ISO format (YYYY-MM-DD)
+        end_date: End date in ISO format (YYYY-MM-DD)
+
+    Returns:
+        List of pump system prediction data records
+
+    Raises:
+        HTTPException: If Snowflake is not configured or query fails
+    """
+    try:
+        snowflake_client = get_snowflake_client(request.app.state.deps.config)
+
+        # Build query with optional date filtering
+        query = "SELECT * FROM PUMP_SYSTEM_DATA_PREDICTION"
+        conditions = []
+
+        if start_date:
+            conditions.append(f"TIMESTAMP >= '{start_date}'")
+        if end_date:
+            conditions.append(f"TIMESTAMP <= '{end_date} 23:59:59'")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY TIMESTAMP ASC"
+
+        results = snowflake_client.execute_query(query)
+
+        return results
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch pump prediction data: {str(e)}"
+        )

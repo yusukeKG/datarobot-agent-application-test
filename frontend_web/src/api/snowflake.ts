@@ -13,6 +13,11 @@ export interface PumpData {
   CREATED_AT: string;
 }
 
+export interface PumpDataPrediction {
+  TIMESTAMP: string;
+  POWER_CONSUMPTION_KWH_PREDICTION: number;
+}
+
 export interface SnowflakeStatus {
   configured: boolean;
   database: string | null;
@@ -35,6 +40,18 @@ export const snowflakeApi = {
     if (endDate) params.append('end_date', endDate);
 
     const response = await axios.get(`${API_BASE_URL}/pump-data?${params}`);
+    return response.data;
+  },
+
+  getPumpDataPrediction: async (
+    startDate?: string,
+    endDate?: string
+  ): Promise<PumpDataPrediction[]> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const response = await axios.get(`${API_BASE_URL}/pump-data-prediction?${params}`);
     return response.data;
   },
 
