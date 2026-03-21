@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { format, subDays } from 'date-fns';
-import { Calendar } from 'lucide-react';
+import { Calendar, CheckCircle2, CircleDot, Clock, Loader2, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   CartesianGrid,
   Legend,
@@ -13,6 +14,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import {
+  type AgentStepEvent,
+  type AnalysisSSEEvent,
+  startPowerAnalysis,
+} from '@/api/analysis';
 import { snowflakeApi } from '@/api/snowflake';
 
 type PinnedPoint = {
@@ -89,6 +95,13 @@ export function SensorsPage() {
   // 固定吹き出しの DOM ref（はみ出し補正用）
   const pinnedTooltipRef = useRef<HTMLDivElement>(null);
 
+  // --- AI 分析ステート ---
+  const [analysisSteps, setAnalysisSteps] = useState<AgentStepEvent[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const analysisPanelRef = useRef<HTMLDivElement>(null);
+
   // Tooltip のカスタムコンポーネント
   // recharts がマウス移動毎にこの関数を呼び出すので、そこでホバー中のデータを ref に保存する
   const PowerTooltipContent = useCallback(
@@ -147,6 +160,13 @@ export function SensorsPage() {
     );
   }, []);
 
+  // クリーンアップ: コンポーネントアンマウント時にSSE接続を切断
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const { data: pumpData, isLoading, error } = useQuery({
     queryKey: ['pumpData', startDate, endDate],
     queryFn: () => snowflakeApi.getPumpData(startDate, endDate),
@@ -176,13 +196,69 @@ export function SensorsPage() {
     };
   });
 
-  // 予測値に対する実績の絶対誤差が±10%を超えるデータポイント
+  // 予測値に対する実績の絶対誤差が閾値を超えるデータポイント
   const anomalyPoints = chartData?.filter(
     (d) =>
       d.power != null &&
       d.powerPrediction != null &&
       Math.abs(d.power - d.powerPrediction) > 100
   );
+
+  // --- AI 分析ハンドラ ---
+  const handleStartAnalysis = useCallback(() => {
+    if (isAnalyzing) return;
+
+    // anomaly summary を構築
+    const anomalySummary = (anomalyPoints ?? []).map((d) => ({
+      timestamp: d.timestamp,
+      power: d.power!,
+      power_prediction: d.powerPrediction!,
+      diff: d.power! - d.powerPrediction!,
+      diff_pct:
+        d.powerPrediction !== 0
+          ? ((d.power! - d.powerPrediction!) / Math.abs(d.powerPrediction!)) * 100
+          : 0,
+    }));
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisSteps([]);
+
+    const controller = startPowerAnalysis(
+      {
+        start_date: startDate,
+        end_date: endDate,
+        anomaly_points: anomalySummary,
+        total_data_points: chartData?.length ?? 0,
+      },
+      (event: AnalysisSSEEvent) => {
+        if (event.event === 'agent_step') {
+          const step = event.data as AgentStepEvent;
+          setAnalysisSteps((prev) => {
+            const idx = prev.findIndex((s) => s.agent_id === step.agent_id);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = step;
+              return next;
+            }
+            return [...prev, step];
+          });
+        } else if (event.event === 'analysis_complete') {
+          setIsAnalyzing(false);
+        }
+      },
+      (err) => {
+        setAnalysisError(err.message);
+        setIsAnalyzing(false);
+      },
+    );
+    abortRef.current = controller;
+
+    // 分析パネルへスクロール
+    setTimeout(() => {
+      analysisPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }, [isAnalyzing, startDate, endDate, chartData, anomalyPoints]);
 
   return (
     <div className="space-y-6">
@@ -249,9 +325,19 @@ export function SensorsPage() {
         <div className="space-y-6">
           {/* 電力消費量 */}
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">
-              電力消費量 (kWh)
-            </h3>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                電力消費量 (kWh)
+              </h3>
+              <button
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                disabled={isAnalyzing}
+                onClick={handleStartAnalysis}
+              >
+                {isAnalyzing && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isAnalyzing ? '分析中…' : 'この期間をAIで分析'}
+              </button>
+            </div>
             <div
               className="relative"
               ref={chartContainerRef}
@@ -410,6 +496,81 @@ export function SensorsPage() {
               {/* 固定した◯を描画（チャートのactiveDotとは独立） */}
             </div>
           </div>
+
+          {/* AI 分析結果パネル */}
+          {(analysisSteps.length > 0 || isAnalyzing || analysisError) && (
+            <div
+              ref={analysisPanelRef}
+              className="rounded-lg border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <CircleDot className="h-5 w-5 text-blue-600" />
+                  AI 分析レポート
+                </h3>
+                {!isAnalyzing && analysisSteps.length > 0 && (
+                  <button
+                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    onClick={() => {
+                      setAnalysisSteps([]);
+                      setAnalysisError(null);
+                    }}
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {analysisError && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">
+                  エラー: {analysisError}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {analysisSteps.map((step) => (
+                  <div
+                    key={step.agent_id}
+                    className={`rounded-lg border p-4 transition-all duration-300 ${
+                      step.status === 'completed'
+                        ? 'border-green-200 bg-white'
+                        : step.status === 'running'
+                          ? 'border-blue-300 bg-blue-50/50'
+                          : 'border-gray-200 bg-gray-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      {step.status === 'completed' && (
+                        <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                      )}
+                      {step.status === 'running' && (
+                        <Loader2 className="h-5 w-5 text-blue-500 animate-spin flex-shrink-0" />
+                      )}
+                      {step.status === 'pending' && (
+                        <Clock className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                      )}
+                      <div>
+                        <span className="text-sm font-semibold text-gray-900">
+                          エージェント {step.agent_id}: {step.title}
+                        </span>
+                        {step.status === 'running' && step.description && (
+                          <p className="text-xs text-blue-600 mt-0.5">{step.description}</p>
+                        )}
+                        {step.status === 'pending' && (
+                          <p className="text-xs text-gray-400 mt-0.5">待機中</p>
+                        )}
+                      </div>
+                    </div>
+                    {step.status === 'completed' && step.content && (
+                      <div className="mt-3 border-t border-gray-100 pt-3 prose prose-sm max-w-none text-gray-700">
+                        <ReactMarkdown>{step.content}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ポンプ流量 */}
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
