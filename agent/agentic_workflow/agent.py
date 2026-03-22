@@ -14,13 +14,14 @@
 import json
 from typing import Any, List, Optional, Union
 
-from config import Config
 from crewai import LLM, Agent, Task
 from datarobot_genai.crewai.agent import (
     build_llm,
 )
 from datarobot_genai.crewai.base import CrewAIAgent
 from datarobot_genai.crewai.events import CrewAIEventListener
+
+from config import Config
 
 
 class MyAgent(CrewAIAgent):
@@ -427,4 +428,170 @@ class PastCaseSearchAgent(CrewAIAgent):
                 "- `### まとめ` に最も参照すべき事例の推奨\n"
             ),
             agent=self.agent_past_case_analyst,
+        )
+
+
+class MaintenanceActionAgent(CrewAIAgent):
+    """保守アクション提案エージェント。
+
+    Agent 1（予実乖離分析）の結果と Agent 2（過去事例検索）の結果を
+    総合的に評価し、優先度付きの保守アクションを提案する。
+    DataRobot LLM Gateway を通じて LLM を呼び出す。
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+        model: Optional[str] = None,
+        verbose: Optional[Union[bool, str]] = True,
+        timeout: Optional[int] = 90,
+        **kwargs: Any,
+    ):
+        super().__init__(
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+            verbose=verbose,
+            timeout=timeout,
+            **kwargs,
+        )
+        self.config = Config()
+        self.default_model = self.config.llm_default_model
+        self.event_listener = CrewAIEventListener()
+
+    def llm(
+        self,
+        preferred_model: str | None = None,
+        auto_model_override: bool = True,
+    ) -> LLM:
+        """Returns the LLM to use for a given model."""
+        model = preferred_model or self.default_model
+        if auto_model_override and not self.config.use_datarobot_llm_gateway:
+            model = self.default_model
+        if self.verbose:
+            print(f"Using model: {model}")
+        return build_llm(
+            api_base=self.api_base,
+            api_key=self.api_key,
+            model=model,
+            deployment_id=self.config.llm_deployment_id,
+            timeout=self.timeout,
+        )
+
+    def make_kickoff_inputs(self, user_prompt_content: str) -> dict[str, Any]:
+        """Map the user prompt into Crew kickoff inputs.
+
+        Expects a JSON payload with keys: agent_type, analysis_summary,
+        past_cases. Passes both to the task template variables.
+        """
+        data: dict[str, Any] | None = None
+
+        if isinstance(user_prompt_content, dict):
+            data = user_prompt_content
+        elif isinstance(user_prompt_content, str):
+            try:
+                parsed = json.loads(user_prompt_content)
+                if isinstance(parsed, dict):
+                    data = parsed
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        analysis_summary = ""
+        past_cases = ""
+        if data is not None:
+            analysis_summary = data.get("analysis_summary", "")
+            past_cases = data.get("past_cases", "")
+
+        if not analysis_summary:
+            analysis_summary = str(user_prompt_content)
+
+        if not past_cases:
+            # TODO: 過去の対策事例データベースが整備された後は、
+            # Agent 2 の出力が常に渡される想定のためこのフォールバックは不要になる。
+            past_cases = (
+                "過去事例データは現在利用できません。"
+                "分析結果のみに基づいてアクションを提案してください。"
+            )
+
+        return {
+            "analysis_summary": analysis_summary,
+            "past_cases": past_cases,
+        }
+
+    @property
+    def agents(self) -> List[Agent]:
+        return [self.agent_maintenance_advisor]
+
+    @property
+    def tasks(self) -> List[Task]:
+        return [self.task_propose_maintenance_actions]
+
+    @property
+    def agent_maintenance_advisor(self) -> Agent:
+        """保守アクション提案アドバイザー。"""
+        return Agent(
+            role="保守アクション提案アドバイザー",
+            goal=(
+                "予実乖離分析の結果と過去の類似保守事例を総合的に評価し、"
+                "保全担当者が即座に行動に移せる具体的かつ優先度付きの"
+                "保守アクションを提案する。"
+            ),
+            backstory=(
+                "あなたはポンプ・回転機器の保全計画に精通した保守アドバイザーです。"
+                "予知保全・状態基準保全（CBM）の専門知識を持ち、分析データと"
+                "過去の保守履歴を組み合わせて最適なアクションプランを策定できます。"
+                "各アクションの優先度、必要なリソース、想定される停止時間、"
+                "対応が遅れた場合のリスクを定量的に評価し、"
+                "保全担当者が意思決定しやすい形式で報告します。"
+            ),
+            allow_delegation=False,
+            verbose=self.verbose,
+            llm=self.llm(preferred_model="datarobot/azure/gpt-5-mini-2025-08-07"),
+            tools=self.mcp_tools,
+        )
+
+    @property
+    def task_propose_maintenance_actions(self) -> Task:
+        """保守アクション提案タスク。"""
+        return Task(
+            description=(
+                "以下の予実乖離分析結果と過去事例検索結果に基づいて、"
+                "具体的な保守アクションを優先度付きで提案してください。\n\n"
+                "## 予実乖離分析結果（Agent 1 出力）\n\n"
+                "{analysis_summary}\n\n"
+                "## 過去事例検索結果（Agent 2 出力）\n\n"
+                "{past_cases}\n\n"
+                "## 提案の観点\n"
+                "以下の観点でアクションを提案してください:\n\n"
+                "1. **緊急度の判定**: 分析結果の深刻度と過去事例の結末から、"
+                "対応の緊急度を判定\n"
+                "2. **具体的アクション**: 各アクションについて、何を・いつまでに・"
+                "どのように実施すべきかを具体的に記述\n"
+                "3. **根拠の明示**: なぜそのアクションが必要かを、"
+                "分析結果や過去事例の番号を引用して説明\n"
+                "4. **リソース見積もり**: 各アクションの想定所要時間・"
+                "必要人員・概算費用を可能な範囲で提示\n"
+                "5. **リスク評価**: 対応が遅れた場合に想定されるリスク"
+                "（設備停止、生産影響等）を評価\n\n"
+                "## 重要な注意事項\n"
+                "- 提供されたデータのみに基づいて提案してください。"
+                "データにない事実を推測で補わないでください\n"
+                "- アクションは優先度（高・中・低）に分類してください\n"
+                "- 過去事例との関連がある場合は報告書番号を明記してください\n"
+                "- 物理的な点検と AI モデルの再学習の両面から検討してください\n"
+            ),
+            expected_output=(
+                "Markdown形式の推奨保守アクションレポート。以下の構成を含むこと:\n"
+                "- `## 推奨保守アクション` の見出し\n"
+                "- 提案の前提条件の概要（分析結果と過去事例の要約）\n"
+                "- `### 🔴 優先度: 高（48時間以内に実施推奨）` に緊急アクション\n"
+                "- `### 🟡 優先度: 中（1週間以内に実施推奨）` に中期アクション\n"
+                "- `### 🟢 優先度: 低（次回定期点検時に実施）` に長期アクション\n"
+                "- 各アクションに番号付きリストで: アクション内容、根拠、"
+                "所要時間の見積もり\n"
+                "- 最後に **見積もり停止時間**、**見積もり費用**、**リスク** の"
+                "サマリーを記載\n"
+            ),
+            agent=self.agent_maintenance_advisor,
         )

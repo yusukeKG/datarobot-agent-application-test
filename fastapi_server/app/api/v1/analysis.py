@@ -20,7 +20,6 @@ Agents 2 and 3 still return mock responses (to be implemented later).
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator
@@ -159,14 +158,14 @@ async def _agent_2_past_cases(
         raise
 
 
-async def _mock_agent_3_maintenance_actions(
+async def _agent_3_maintenance_actions(
     analysis_summary: str,
     past_cases: str,
     req: AnalysisRequest,
+    agent_endpoint: str,
+    api_token: str,
 ) -> str:
-    """Agent 3: 保守アクション提案（モック）."""
-    await asyncio.sleep(1.5)
-
+    """Agent 3: 保守アクション提案（LLM Gateway 経由）."""
     if len(req.anomaly_points) == 0:
         return (
             "## 推奨アクション\n\n"
@@ -175,38 +174,29 @@ async def _mock_agent_3_maintenance_actions(
             "センサーの校正確認を行うことを推奨します。"
         )
 
-    return (
-        "## 推奨保守アクション\n\n"
-        "予実乖離分析と過去事例の照合結果に基づき、"
-        "以下のアクションを優先度順に提案します。\n\n"
-        "### 🔴 優先度: 高（48時間以内に実施推奨）\n\n"
-        "1. **ポンプ軸受の振動測定・状態診断**\n"
-        "   - 過去事例 MR-2024-0847 と乖離パターンが87%一致しています。\n"
-        "   - ポータブル振動計による簡易診断を推奨（所要: 約30分）。\n"
-        "   - 振動値が基準値の1.5倍を超える場合、軸受交換を計画してください。\n\n"
-        "2. **インペラの目視点検**\n"
-        "   - 過去事例 MR-2024-0312 と類似の断続的パターンが見られます。\n"
-        "   - 直近のメンテナンス窓でインペラのスケール付着状況を確認してください。\n\n"
-        "### 🟡 優先度: 中（1週間以内に実施推奨）\n\n"
-        "3. **冷却系統の流量チェック**\n"
-        "   - 流体温度データに微増傾向が見られる場合、"
-        "冷却配管の部分閉塞の可能性も排除できません。\n"
-        "   - フローメーターによる流量測定と圧力損失の確認を推奨します。\n\n"
-        "4. **AIモデルの再学習検討**\n"
-        "   - 設備の経年変化により、予測モデルのベースラインが"
-        "実態と乖離している可能性もあります。\n"
-        "   - 上記の物理的点検で問題がない場合は、"
-        "直近3ヶ月のデータでモデルを再学習することを推奨します。\n\n"
-        "### 🟢 優先度: 低（次回定期点検時に実施）\n\n"
-        "5. **センサー校正の確認**\n"
-        "   - 電力消費センサーのドリフトの可能性を排除するため、"
-        "校正日時を確認し、必要に応じて再校正してください。\n\n"
-        "---\n\n"
-        "**見積もり停止時間**: 軸受交換が必要な場合 → 約4時間  \n"
-        "**見積もり費用**: 軸受部品代 + 作業工賃 → 概算15〜25万円  \n"
-        "**リスク**: 対応が遅れた場合、ポンプの突発停止による"
-        "生産ライン停止リスクがあります。"
+    payload = {
+        "agent_type": "maintenance_action",
+        "analysis_summary": analysis_summary,
+        "past_cases": past_cases,
+    }
+
+    client = AsyncOpenAI(
+        base_url=agent_endpoint,
+        api_key=api_token,
+        default_headers={"Authorization": f"Bearer {api_token}"},
     )
+    try:
+        response = await client.chat.completions.create(
+            model="custom-model",
+            messages=[
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            stream=False,
+        )
+        return response.choices[0].message.content or ""
+    except Exception:
+        logger.exception("Agent 3 LLM call failed")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -314,9 +304,12 @@ async def _run_analysis_pipeline(
             "content": "",
         },
     )
-    agent3_result = await _mock_agent_3_maintenance_actions(
-        agent1_result, agent2_result, req
-    )
+    try:
+        agent3_result = await _agent_3_maintenance_actions(
+            agent1_result, agent2_result, req, agent_endpoint, api_token
+        )
+    except Exception as exc:
+        agent3_result = f"## エラー\n\nAgent 3 の実行中にエラーが発生しました: {exc}"
     yield _sse_event(
         "agent_step",
         {

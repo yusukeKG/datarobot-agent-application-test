@@ -19,7 +19,7 @@ from datarobot_genai.core.telemetry_agent import instrument
 
 instrument(framework="crewai")
 # ruff: noqa: E402
-from agent import MyAgent, PastCaseSearchAgent
+from agent import MaintenanceActionAgent, MyAgent, PastCaseSearchAgent
 from config import Config
 
 # isort: on
@@ -136,6 +136,8 @@ def chat(
     agent_type = _extract_agent_type(completion_create_params)
     if agent_type == "past_case_search":
         agent = PastCaseSearchAgent(**completion_create_params)
+    elif agent_type == "maintenance_action":
+        agent = MaintenanceActionAgent(**completion_create_params)
     else:
         agent = MyAgent(**completion_create_params)
 
