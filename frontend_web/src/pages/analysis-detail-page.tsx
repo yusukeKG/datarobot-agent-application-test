@@ -6,18 +6,8 @@ import {
   Loader2,
   Trash2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { downloadAnalysisReport } from '@/api/analysis';
 import {
   useAnalysisReport,
@@ -25,12 +15,15 @@ import {
   useDeleteAnalysisReport,
 } from '@/api/analysis-hooks';
 import { PowerChart, type ChartDataPoint } from '@/components/power-chart';
+import { SyncedMetricChart } from '@/components/synced-metric-chart';
 
 export function AnalysisDetailPage() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [pinnedTimestamp, setPinnedTimestamp] = useState<string | null>(null);
+  const handlePinnedChange = useCallback((ts: string | null) => setPinnedTimestamp(ts), []);
 
   const { data: report, isLoading: reportLoading } = useAnalysisReport(uuid);
   const { data: timeseries, isLoading: tsLoading } =
@@ -197,7 +190,7 @@ export function AnalysisDetailPage() {
           <h3 className="mb-4 text-lg font-semibold text-gray-900">
             電力消費量 (kWh)
           </h3>
-          <PowerChart data={chartData} />
+          <PowerChart data={chartData} onPinnedChange={handlePinnedChange} />
         </div>
       )}
 
@@ -209,117 +202,55 @@ export function AnalysisDetailPage() {
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
               ポンプ流量 (L/h)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="flow"
-                  stroke="#8b5cf6"
-                  name="ポンプ流量"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="flow"
+              name="ポンプ流量"
+              stroke="#8b5cf6"
+              pinnedTimestamp={pinnedTimestamp}
+            />
           </div>
 
-          {/* Temperature */}
+          {/* 外気温度 */}
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
-              温度 (°C)
+              外気温度 (°C)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="temperature"
-                  stroke="#3b82f6"
-                  name="外気温度"
-                  dot={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="fluidTemperature"
-                  stroke="#10b981"
-                  name="流体温度"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="temperature"
+              name="外気温度"
+              stroke="#3b82f6"
+              pinnedTimestamp={pinnedTimestamp}
+            />
           </div>
 
-          {/* Pressure */}
+          {/* 流体温度 */}
+          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">
+              流体温度 (°C)
+            </h3>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="fluidTemperature"
+              name="流体温度"
+              stroke="#10b981"
+              pinnedTimestamp={pinnedTimestamp}
+            />
+          </div>
+
+          {/* ポンプ出口圧力 */}
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
               ポンプ出口圧力 (MPa)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="pressure"
-                  stroke="#f59e0b"
-                  name="ポンプ出口圧力"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="pressure"
+              name="ポンプ出口圧力"
+              stroke="#f59e0b"
+              pinnedTimestamp={pinnedTimestamp}
+            />
           </div>
         </>
       )}

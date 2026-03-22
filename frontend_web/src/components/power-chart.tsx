@@ -83,9 +83,10 @@ function PinnedTooltipOverlay({
 interface PowerChartProps {
   data: ChartDataPoint[];
   height?: number;
+  onPinnedChange?: (timestamp: string | null) => void;
 }
 
-export function PowerChart({ data, height = 300 }: PowerChartProps) {
+export function PowerChart({ data, height = 300, onPinnedChange }: PowerChartProps) {
   const [pinnedPoint, setPinnedPoint] = useState<PinnedPoint | null>(null);
   const hoveredRef = useRef<PinnedPoint | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -151,12 +152,15 @@ export function PowerChart({ data, height = 300 }: PowerChartProps) {
     const active = hoveredRef.current;
     if (!active) {
       setPinnedPoint(null);
+      onPinnedChange?.(null);
       return;
     }
-    setPinnedPoint((prev) =>
-      prev?.label === active.label ? null : { ...active },
-    );
-  }, []);
+    setPinnedPoint((prev) => {
+      const next = prev?.label === active.label ? null : { ...active };
+      onPinnedChange?.(next?.label ?? null);
+      return next;
+    });
+  }, [onPinnedChange]);
 
   return (
     <div
