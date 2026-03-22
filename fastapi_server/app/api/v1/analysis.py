@@ -14,9 +14,8 @@
 
 """Power-consumption analysis endpoint with 3-agent sequential workflow.
 
-Current implementation returns mock (dummy) responses.
-To switch to real LLM-backed agents, replace the ``_mock_agent_*`` helpers
-with CrewAI agents that call ``build_llm`` via the DataRobot LLM Gateway.
+Agent 1 calls the CrewAI divergence-analysis agent via the DRUM endpoint.
+Agents 2 and 3 still return mock responses (to be implemented later).
 """
 
 from __future__ import annotations
@@ -26,8 +25,9 @@ import json
 import logging
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -71,52 +71,53 @@ def _sse_event(event: str, data: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Mock agent implementations
+# Agent 1: Real LLM call via DRUM endpoint
 # ---------------------------------------------------------------------------
 
+_NO_ANOMALY_REPORT = (
+    "## 予実乖離分析レポート\n\n"
+    "**対象期間**: {start_date} ～ {end_date}\n\n"
+    "この期間において、電力消費量の実績値と DataRobot 予測値の間に"
+    "有意な乖離は検出されませんでした。\n\n"
+    "設備は正常な稼働範囲内にあると判断されます。"
+)
 
-async def _mock_agent_1_divergence_analysis(
+
+async def _agent_1_divergence_analysis(
     req: AnalysisRequest,
+    agent_endpoint: str,
+    api_token: str,
 ) -> str:
-    """Agent 1: 予実乖離の時系列分析（モック）."""
-    await asyncio.sleep(1.5)
-
-    n_anomalies = len(req.anomaly_points)
-    if n_anomalies == 0:
-        return (
-            f"## 予実乖離分析レポート\n\n"
-            f"**対象期間**: {req.start_date} ～ {req.end_date}\n\n"
-            f"この期間において、電力消費量の実績値と DataRobot 予測値の間に"
-            f"有意な乖離は検出されませんでした。\n\n"
-            f"設備は正常な稼働範囲内にあると判断されます。"
+    """Agent 1: 予実乖離の時系列分析（LLM Gateway 経由）."""
+    if not req.anomaly_points:
+        return _NO_ANOMALY_REPORT.format(
+            start_date=req.start_date, end_date=req.end_date
         )
 
-    # 乖離の時間軸パターンを模擬
-    timestamps = [a.timestamp for a in req.anomaly_points]
-    max_diff = max(req.anomaly_points, key=lambda a: abs(a.diff))
+    payload = {
+        "start_date": req.start_date,
+        "end_date": req.end_date,
+        "total_data_points": req.total_data_points,
+        "anomaly_points": [ap.model_dump() for ap in req.anomaly_points],
+    }
 
-    return (
-        f"## 予実乖離分析レポート\n\n"
-        f"**対象期間**: {req.start_date} ～ {req.end_date}  \n"
-        f"**全データ数**: {req.total_data_points} 件  \n"
-        f"**異常検知数**: {n_anomalies} 件  \n"
-        f"**異常発生率**: {n_anomalies / max(req.total_data_points, 1) * 100:.1f}%\n\n"
-        f"### 主要な発見事項\n\n"
-        f"1. **最大乖離**: {max_diff.timestamp} に "
-        f"{max_diff.diff:+.1f} kWh（{max_diff.diff_pct:+.1f}%）の乖離を検出。"
-        f"これは予測モデルが想定する正常稼働範囲を大きく超えており、"
-        f"負荷の急変またはポンプ効率の低下が疑われます。\n\n"
-        f"2. **時間軸トレンド**: 乖離は期間の後半に集中しており、"
-        f"**乖離幅が拡大傾向** にあります。これは一過性の外乱ではなく、"
-        f"設備の状態が徐々に劣化している可能性を示唆しています。\n\n"
-        f"3. **連続性**: 異常点の中に **3 時間以上連続した乖離区間** が確認されました"
-        f"（{timestamps[0]} 付近）。連続的な乖離は、一時的なセンサーノイズではなく"
-        f"実際の設備異常である確度が高いことを意味します。\n\n"
-        f"### 総合評価\n\n"
-        f"予実乖離の規模・頻度・連続性の3軸から総合すると、"
-        f"**設備に中程度の異常が進行している可能性が高い** と判断されます。"
-        f"早期の点検を推奨します。"
+    client = AsyncOpenAI(
+        base_url=agent_endpoint,
+        api_key=api_token,
+        default_headers={"Authorization": f"Bearer {api_token}"},
     )
+    try:
+        response = await client.chat.completions.create(
+            model="custom-model",
+            messages=[
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            stream=False,
+        )
+        return response.choices[0].message.content or ""
+    except Exception:
+        logger.exception("Agent 1 LLM call failed")
+        raise
 
 
 async def _mock_agent_2_past_cases(
@@ -222,6 +223,8 @@ async def _mock_agent_3_maintenance_actions(
 
 async def _run_analysis_pipeline(
     req: AnalysisRequest,
+    agent_endpoint: str,
+    api_token: str,
 ) -> AsyncIterator[str]:
     """Run the 3-agent pipeline, yielding SSE events."""
 
@@ -266,7 +269,14 @@ async def _run_analysis_pipeline(
             "content": "",
         },
     )
-    agent1_result = await _mock_agent_1_divergence_analysis(req)
+    try:
+        agent1_result = await _agent_1_divergence_analysis(
+            req, agent_endpoint, api_token
+        )
+    except Exception as exc:
+        agent1_result = (
+            f"## エラー\n\nAgent 1 の実行中にエラーが発生しました: {exc}"
+        )
     yield _sse_event(
         "agent_step",
         {
@@ -328,14 +338,20 @@ async def _run_analysis_pipeline(
 @analysis_router.post("/power-consumption")
 async def analyze_power_consumption(
     req: AnalysisRequest,
+    request: Request,
 ) -> StreamingResponse:
     """Run the 3-agent power-consumption analysis pipeline.
 
     Returns an SSE stream with ``agent_step`` events for each agent
     and an ``analysis_complete`` event when the pipeline finishes.
     """
+    config = request.app.state.deps.config
     return StreamingResponse(
-        _run_analysis_pipeline(req),
+        _run_analysis_pipeline(
+            req,
+            agent_endpoint=config.agent_endpoint,
+            api_token=config.datarobot_api_token,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

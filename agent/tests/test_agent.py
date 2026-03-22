@@ -273,29 +273,13 @@ class TestMyAgentCrewAI:
             )
 
     @patch("agent.Agent")
-    def test_agent_planner_property(self, mock_agent, agent):
+    def test_agent_divergence_analyst_property(self, mock_agent, agent):
         # Mock the llm property
         mock_llm = Mock()
         with patch.object(MyAgent, "llm", return_value=mock_llm):
-            agent.agent_planner
+            agent.agent_divergence_analyst
             mock_agent.assert_called_once_with(
-                role="Planner",
-                goal=ANY,
-                backstory=ANY,
-                allow_delegation=False,
-                verbose=True,
-                llm=ANY,
-                tools=ANY,
-            )
-
-    @patch("agent.Agent")
-    def test_agent_writer_property(self, mock_agent, agent):
-        # Mock the llm property
-        mock_llm = Mock()
-        with patch.object(MyAgent, "llm", return_value=mock_llm):
-            agent.agent_writer
-            mock_agent.assert_called_once_with(
-                role="Writer",
+                role="ポンプシステム予実乖離アナリスト",
                 goal=ANY,
                 backstory=ANY,
                 allow_delegation=False,
@@ -305,28 +289,66 @@ class TestMyAgentCrewAI:
             )
 
     @patch("agent.Task")
-    def test_task_plan_property(self, mock_task, agent):
-        # Mock the agent_planner property
-        mock_planner = Mock()
-        with patch.object(MyAgent, "agent_planner", return_value=mock_planner):
-            agent.task_plan
+    def test_task_analyze_divergence_property(self, mock_task, agent):
+        mock_analyst = Mock()
+        with patch.object(
+            MyAgent, "agent_divergence_analyst", return_value=mock_analyst
+        ):
+            agent.task_analyze_divergence
             mock_task.assert_called_once_with(
                 description=ANY,
                 expected_output=ANY,
                 agent=ANY,
             )
 
-    @patch("agent.Task")
-    def test_task_write_property(self, mock_task, agent):
-        # Mock the agent_planner property
-        mock_planner = Mock()
-        with patch.object(MyAgent, "agent_writer", return_value=mock_planner):
-            agent.task_write
-            mock_task.assert_called_once_with(
-                description=ANY,
-                expected_output=ANY,
-                agent=ANY,
-            )
+    def test_make_kickoff_inputs_json(self, agent):
+        """Test that JSON user prompt is parsed into kickoff inputs."""
+        payload = json.dumps({
+            "start_date": "2026-03-01",
+            "end_date": "2026-03-07",
+            "total_data_points": 168,
+            "anomaly_points": [
+                {
+                    "timestamp": "03/05 14:00",
+                    "power": 550.0,
+                    "power_prediction": 400.0,
+                    "diff": 150.0,
+                    "diff_pct": 37.5,
+                },
+            ],
+        })
+        result = agent.make_kickoff_inputs(payload)
+        assert "analysis_data" in result
+        assert "2026-03-01" in result["analysis_data"]
+        assert "2026-03-07" in result["analysis_data"]
+        assert "550.0" in result["analysis_data"]
+        assert "400.0" in result["analysis_data"]
+
+    def test_make_kickoff_inputs_dict(self, agent):
+        """Test that a dict (pre-parsed by DRUM) is handled correctly."""
+        payload = {
+            "start_date": "2026-03-01",
+            "end_date": "2026-03-07",
+            "total_data_points": 168,
+            "anomaly_points": [
+                {
+                    "timestamp": "03/05 14:00",
+                    "power": 550.0,
+                    "power_prediction": 400.0,
+                    "diff": 150.0,
+                    "diff_pct": 37.5,
+                },
+            ],
+        }
+        result = agent.make_kickoff_inputs(payload)
+        assert "analysis_data" in result
+        assert "2026-03-01" in result["analysis_data"]
+        assert "550.0" in result["analysis_data"]
+
+    def test_make_kickoff_inputs_plain_text(self, agent):
+        """Test fallback when user prompt is not JSON."""
+        result = agent.make_kickoff_inputs("hello world")
+        assert result == {"analysis_data": "hello world"}
 
     @patch("datarobot_genai.crewai.base.Crew")
     @patch("agent.CrewAIEventListener")
@@ -372,8 +394,7 @@ class TestMyAgentCrewAI:
         }
 
         with (
-            patch.object(MyAgent, "task_plan"),
-            patch.object(MyAgent, "task_write"),
+            patch.object(MyAgent, "task_analyze_divergence"),
             patch(
                 "datarobot_genai.crewai.agent.create_pipeline_interactions_from_messages",
                 return_value=MultiTurnSample(user_input=events),
@@ -399,11 +420,10 @@ class TestMyAgentMCPIntegration:
     def agent(self):
         return MyAgent(api_key="test_key", api_base="test_base", verbose=True)
 
-    def test_agent_planner_with_mcp_tools(self, agent):
-        """Test that planner agent uses MCP tools when configured."""
+    def test_agent_divergence_analyst_with_mcp_tools(self, agent):
+        """Test that divergence analyst agent uses MCP tools when configured."""
         from crewai.tools import BaseTool
 
-        # Create mock MCP tools
         class MockTool(BaseTool):
             name: str = "test_mcp_tool"
             description: str = "Test MCP tool"
@@ -412,49 +432,20 @@ class TestMyAgentMCPIntegration:
                 return "mcp_result"
 
         mock_tools = [MockTool()]
-
-        # Set MCP tools using the new method
         agent.set_mcp_tools(mock_tools)
 
-        # Test planner agent
-        planner = agent.agent_planner
-        assert planner.tools == mock_tools
-
-    def test_agent_writer_with_mcp_tools(self, agent):
-        """Test that writer agent uses MCP tools when configured."""
-        from crewai.tools import BaseTool
-
-        # Create mock MCP tools
-        class MockTool(BaseTool):
-            name: str = "test_mcp_tool"
-            description: str = "Test MCP tool"
-
-            def _run(self, **kwargs):
-                return "mcp_result"
-
-        mock_tools = [MockTool()]
-
-        # Set MCP tools using the new method
-        agent.set_mcp_tools(mock_tools)
-
-        # Test writer agent
-        writer = agent.agent_writer
-        assert writer.tools == mock_tools
+        analyst = agent.agent_divergence_analyst
+        assert analyst.tools == mock_tools
 
     def test_agent_with_no_mcp_tools(self, agent):
         """Test that agents work when no MCP tools are available."""
-        # Test all agents have no tools by default
-        planner = agent.agent_planner
-        writer = agent.agent_writer
-
-        assert planner.tools == []
-        assert writer.tools == []
+        analyst = agent.agent_divergence_analyst
+        assert analyst.tools == []
 
     def test_agent_with_specific_mcp_tools(self, agent):
         """Test that agents can use specific MCP tools."""
         from crewai.tools import BaseTool
 
-        # Create multiple mock MCP tools
         class Tool1(BaseTool):
             name: str = "tool1"
             description: str = "Tool 1"
@@ -470,60 +461,8 @@ class TestMyAgentMCPIntegration:
                 return "result2"
 
         mock_tools = [Tool1(), Tool2()]
-
-        # Set MCP tools using the new method
         agent.set_mcp_tools(mock_tools)
 
-        # Test planner agent with specific tools
-        planner = agent.agent_planner
-        assert len(planner.tools) == 2
-        assert planner.tools == mock_tools
-
-    def test_agent_planner_specific_tool_names(self, agent):
-        """Test that planner agent gets specific tool names."""
-        from crewai.tools import BaseTool
-
-        # Create mock tool for list_tools
-        class ListToolsTool(BaseTool):
-            name: str = "list_tools"
-            description: str = "List available tools"
-
-            def _run(self, **kwargs):
-                return "available_tools"
-
-        mock_tools = [ListToolsTool()]
-
-        # Set MCP tools using the new method
-        agent.set_mcp_tools(mock_tools)
-
-        # Test planner agent
-        planner = agent.agent_planner
-        assert planner.tools == mock_tools
-
-    def test_agent_writer_all_tools(self, agent):
-        """Test that writer agent gets all available tools."""
-        from crewai.tools import BaseTool
-
-        # Create mock tools
-        class Tool1(BaseTool):
-            name: str = "tool1"
-            description: str = "Tool 1"
-
-            def _run(self, **kwargs):
-                return "result1"
-
-        class Tool2(BaseTool):
-            name: str = "tool2"
-            description: str = "Tool 2"
-
-            def _run(self, **kwargs):
-                return "result2"
-
-        mock_tools = [Tool1(), Tool2()]
-
-        # Set MCP tools using the new method
-        agent.set_mcp_tools(mock_tools)
-
-        # Test writer agent
-        writer = agent.agent_writer
-        assert writer.tools == mock_tools
+        analyst = agent.agent_divergence_analyst
+        assert len(analyst.tools) == 2
+        assert analyst.tools == mock_tools
