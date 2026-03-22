@@ -26,6 +26,7 @@ from sqlmodel import SQLModel
 
 from app import create_app
 from app.ag_ui.stream_manager import AGUIStreamManager
+from app.analysis_reports import AnalysisReportRepository
 from app.auth.api_key import APIKeyValidator, DRUser
 from app.chats import ChatRepository
 from app.config import Config
@@ -61,6 +62,7 @@ def deps(config: Config) -> Deps:
     """
     return Deps(
         config=config,
+        analysis_report_repo=AsyncMock(spec=AnalysisReportRepository),
         chat_repo=AsyncMock(spec=ChatRepository),
         message_repo=AsyncMock(spec=MessageRepository),
         identity_repo=AsyncMock(spec=IdentityRepository),

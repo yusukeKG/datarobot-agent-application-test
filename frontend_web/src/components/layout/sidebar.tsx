@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Activity,
   AlertTriangle,
+  FileBarChart,
   History,
   Settings,
 } from 'lucide-react';
@@ -64,6 +65,11 @@ export function Sidebar() {
           icon={<Activity className="h-5 w-5" />}
           label="センサー監視"
           href="/sensors"
+        />
+        <SidebarItem
+          icon={<FileBarChart className="h-5 w-5" />}
+          label="AI分析履歴"
+          href="/analysis-history"
         />
         <SidebarItem
           icon={<AlertTriangle className="h-5 w-5" />}

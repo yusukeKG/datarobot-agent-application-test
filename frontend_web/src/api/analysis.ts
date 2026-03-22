@@ -5,6 +5,8 @@
  * a caller-supplied callback for every SSE frame received.
  */
 
+import axios from 'axios';
+
 const API_BASE_URL = '/api/v1/analysis';
 
 export interface AnomalyItem {
@@ -15,11 +17,22 @@ export interface AnomalyItem {
   diff_pct: number;
 }
 
+export interface ChartDataRow {
+  timestamp: string;
+  temperature?: number | null;
+  fluidTemperature?: number | null;
+  pressure?: number | null;
+  power?: number | null;
+  powerPrediction?: number | null;
+  flow?: number | null;
+}
+
 export interface AnalysisRequest {
   start_date: string;
   end_date: string;
   anomaly_points: AnomalyItem[];
   total_data_points: number;
+  chart_data: ChartDataRow[];
 }
 
 export type AgentStepStatus = 'pending' | 'running' | 'completed';
@@ -34,6 +47,7 @@ export interface AgentStepEvent {
 
 export interface AnalysisCompleteEvent {
   status: 'done';
+  report_uuid?: string | null;
 }
 
 export type AnalysisSSEEvent =
@@ -114,4 +128,78 @@ export function startPowerAnalysis(
   })();
 
   return controller;
+}
+
+// ---------------------------------------------------------------------------
+// Analysis report CRUD types & functions
+// ---------------------------------------------------------------------------
+
+export interface AnalysisReportSummary {
+  uuid: string;
+  created_at: string;
+  start_date: string;
+  end_date: string;
+  total_data_points: number;
+  anomaly_count: number;
+}
+
+export interface AnalysisReportDetail extends AnalysisReportSummary {
+  divergence_report: string;
+  past_cases_report: string;
+  maintenance_actions_report: string;
+  duckdb_table_name: string;
+  user_uuid: string | null;
+}
+
+export interface TimeseriesRow {
+  timestamp: string;
+  temperature: number | null;
+  fluid_temperature: number | null;
+  pressure: number | null;
+  power: number | null;
+  power_prediction: number | null;
+  flow: number | null;
+  is_anomaly: boolean;
+}
+
+export async function fetchAnalysisReports(): Promise<AnalysisReportSummary[]> {
+  const res = await axios.get(`${API_BASE_URL}/reports`);
+  return res.data;
+}
+
+export async function fetchAnalysisReport(
+  uuid: string,
+): Promise<AnalysisReportDetail> {
+  const res = await axios.get(`${API_BASE_URL}/reports/${uuid}`);
+  return res.data;
+}
+
+export async function fetchAnalysisTimeseries(
+  uuid: string,
+): Promise<TimeseriesRow[]> {
+  const res = await axios.get(`${API_BASE_URL}/reports/${uuid}/timeseries`);
+  return res.data;
+}
+
+export async function deleteAnalysisReport(uuid: string): Promise<void> {
+  await axios.delete(`${API_BASE_URL}/reports/${uuid}`);
+}
+
+export async function downloadAnalysisReport(uuid: string): Promise<void> {
+  const res = await axios.get(`${API_BASE_URL}/reports/${uuid}/download`, {
+    responseType: 'blob',
+  });
+  const blob = new Blob([res.data], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const disposition = res.headers['content-disposition'] as string | undefined;
+  const match = disposition?.match(/filename="?(.+?)"?$/);
+  a.download = match?.[1] ?? `analysis_report_${uuid}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

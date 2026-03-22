@@ -3,6 +3,7 @@ import { format, subDays } from 'date-fns';
 import { Calendar, CheckCircle2, CircleDot, Clock, Loader2, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { Link } from 'react-router-dom';
 import {
   CartesianGrid,
   Legend,
@@ -99,6 +100,7 @@ export function SensorsPage() {
   const [analysisSteps, setAnalysisSteps] = useState<AgentStepEvent[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [savedReportUuid, setSavedReportUuid] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const analysisPanelRef = useRef<HTMLDivElement>(null);
 
@@ -223,6 +225,7 @@ export function SensorsPage() {
     setIsAnalyzing(true);
     setAnalysisError(null);
     setAnalysisSteps([]);
+    setSavedReportUuid(null);
 
     const controller = startPowerAnalysis(
       {
@@ -230,6 +233,15 @@ export function SensorsPage() {
         end_date: endDate,
         anomaly_points: anomalySummary,
         total_data_points: chartData?.length ?? 0,
+        chart_data: (chartData ?? []).map((d) => ({
+          timestamp: d.timestamp,
+          temperature: d.temperature ?? null,
+          fluidTemperature: d.fluidTemperature ?? null,
+          pressure: d.pressure ?? null,
+          power: d.power ?? null,
+          powerPrediction: d.powerPrediction ?? null,
+          flow: d.flow ?? null,
+        })),
       },
       (event: AnalysisSSEEvent) => {
         if (event.event === 'agent_step') {
@@ -245,6 +257,10 @@ export function SensorsPage() {
           });
         } else if (event.event === 'analysis_complete') {
           setIsAnalyzing(false);
+          const completeData = event.data as { status: string; report_uuid?: string | null };
+          if (completeData.report_uuid) {
+            setSavedReportUuid(completeData.report_uuid);
+          }
         }
       },
       (err) => {
@@ -514,6 +530,7 @@ export function SensorsPage() {
                     onClick={() => {
                       setAnalysisSteps([]);
                       setAnalysisError(null);
+                      setSavedReportUuid(null);
                     }}
                   >
                     <XCircle className="h-4 w-4" />
@@ -524,6 +541,18 @@ export function SensorsPage() {
               {analysisError && (
                 <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">
                   エラー: {analysisError}
+                </div>
+              )}
+
+              {savedReportUuid && !isAnalyzing && (
+                <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800 mb-4 flex items-center justify-between">
+                  <span>分析結果を保存しました</span>
+                  <Link
+                    to={`/analysis-history/${savedReportUuid}`}
+                    className="font-medium text-green-700 underline hover:text-green-900"
+                  >
+                    詳細を見る →
+                  </Link>
                 </div>
               )}
 

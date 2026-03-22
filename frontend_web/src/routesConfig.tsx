@@ -8,6 +8,8 @@ import { DashboardPage } from './pages/dashboard-page';
 import { SensorsPage } from './pages/sensors-page';
 import { AlertsPage } from './pages/alerts-page';
 import { MaintenancePage } from './pages/maintenance-page';
+import { AnalysisHistoryPage } from './pages/analysis-history-page';
+import { AnalysisDetailPage } from './pages/analysis-detail-page';
 import { MainLayout } from './components/layout/main-layout';
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
 
@@ -24,6 +26,14 @@ export const appRoutes = [
   { 
     path: PATHS.SENSORS, 
     element: <MainLayout><SensorsPage /></MainLayout>,
+  },
+  { 
+    path: PATHS.ANALYSIS_HISTORY, 
+    element: <MainLayout><AnalysisHistoryPage /></MainLayout>,
+  },
+  { 
+    path: PATHS.ANALYSIS_DETAIL, 
+    element: <MainLayout><AnalysisDetailPage /></MainLayout>,
   },
   { 
     path: PATHS.ALERTS, 

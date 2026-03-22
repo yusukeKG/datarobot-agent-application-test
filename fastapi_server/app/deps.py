@@ -22,6 +22,7 @@ from uuid import UUID
 from datarobot.auth.oauth import AsyncOAuthComponent
 
 from app.ag_ui.stream_manager import AGUIStreamManager, create_stream_manager
+from app.analysis_reports import AnalysisReportRepository
 from app.auth.api_key import APIKeyValidator
 from app.auth.oauth import get_oauth
 from app.chats import ChatRepository
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Deps:
     api_key_validator: APIKeyValidator
+    analysis_report_repo: AnalysisReportRepository
     auth: AsyncOAuthComponent
     chat_repo: ChatRepository
     config: Config
@@ -109,6 +111,7 @@ async def create_deps(
 
     chat_repo = ChatRepository(db)
     message_repo = MessageRepository(db)
+    analysis_report_repo = AnalysisReportRepository(db)
 
     stream_manager = create_stream_manager(
         name="agent",
@@ -119,6 +122,7 @@ async def create_deps(
 
     yield Deps(
         config=config,
+        analysis_report_repo=analysis_report_repo,
         chat_repo=chat_repo,
         message_repo=message_repo,
         user_repo=UserRepository(db),
