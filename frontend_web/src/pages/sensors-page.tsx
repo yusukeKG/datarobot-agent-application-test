@@ -78,6 +78,121 @@ function PinnedTooltipOverlay({
   );
 }
 
+// 同期サブチャート: 電力消費量チャートの固定ポイントに連動して吹き出しを表示
+function SyncedMetricChart({
+  data,
+  dataKey,
+  name,
+  stroke,
+  pinnedTimestamp,
+}: {
+  data: Array<Record<string, any>>;
+  dataKey: string;
+  name: string;
+  stroke: string;
+  pinnedTimestamp: string | null;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [pinnedCoord, setPinnedCoord] = useState<{ x: number; y: number } | null>(null);
+
+  const pinnedItem = pinnedTimestamp
+    ? data.find((d) => d.timestamp === pinnedTimestamp)
+    : null;
+  const pinnedValue = pinnedItem?.[dataKey] as number | null | undefined;
+
+  // ReferenceDot レンダリング後に SVG 座標を取得
+  useEffect(() => {
+    if (!pinnedTimestamp || pinnedValue == null || !containerRef.current) {
+      setPinnedCoord(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const dot = container.querySelector('.recharts-reference-dot circle');
+      if (dot) {
+        const cx = parseFloat(dot.getAttribute('cx') || '0');
+        const cy = parseFloat(dot.getAttribute('cy') || '0');
+        setPinnedCoord({ x: cx, y: cy });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [pinnedTimestamp, pinnedValue, data]);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis
+            dataKey="timestamp"
+            tick={{ fontSize: 12 }}
+            angle={-45}
+            textAnchor="end"
+            height={80}
+          />
+          <YAxis />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: 'white',
+              border: '1px solid #e5e7eb',
+              borderRadius: '0.375rem',
+              color: '#1f2937',
+            }}
+            labelStyle={{ color: '#1f2937' }}
+          />
+          <Legend />
+          <Line
+            type="monotone"
+            dataKey={dataKey}
+            stroke={stroke}
+            name={name}
+            dot={false}
+          />
+          {pinnedTimestamp && pinnedItem && pinnedValue != null && (
+            <ReferenceDot
+              x={pinnedItem.timestamp}
+              y={pinnedValue}
+              r={6}
+              fill={stroke}
+              stroke="#fff"
+              strokeWidth={2}
+            />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+      {pinnedTimestamp && pinnedItem && pinnedValue != null && pinnedCoord && (
+        <PinnedTooltipOverlay
+          pinnedPoint={{
+            label: pinnedTimestamp,
+            payload: [{ name, value: pinnedValue, color: stroke, dataKey }],
+            coordinate: pinnedCoord,
+          }}
+          containerRef={containerRef}
+          pinnedTooltipRef={tooltipRef}
+        >
+          <div className="mb-2 border-b border-gray-100 pb-1 font-semibold text-gray-900">
+            {pinnedTimestamp}
+          </div>
+          <div className="flex items-center justify-between gap-3 py-0.5">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-3 w-3 rounded-full"
+                style={{ backgroundColor: stroke }}
+              />
+              <span className="text-xs text-gray-600">{name}</span>
+            </div>
+            <span className="font-mono font-medium text-gray-900">
+              {pinnedValue.toFixed(2)}
+            </span>
+          </div>
+        </PinnedTooltipOverlay>
+      )}
+    </div>
+  );
+}
+
 export function SensorsPage() {
   const [startDate, setStartDate] = useState<string>(
     format(subDays(new Date(), 7), 'yyyy-MM-dd')
@@ -498,15 +613,6 @@ export function SensorsPage() {
                     }
                     return null;
                   })()}
-                  <button
-                    className="mt-3 w-full rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // TODO: バックエンドのAIエンドポイントを呼び出す
-                    }}
-                  >
-                    この予測誤差について分析
-                  </button>
                 </PinnedTooltipOverlay>
               )}
               {/* 固定した◯を描画（チャートのactiveDotとは独立） */}
@@ -606,36 +712,13 @@ export function SensorsPage() {
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
               ポンプ流量 (L/h)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="flow"
-                  stroke="#8b5cf6"
-                  name="ポンプ流量"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="flow"
+              name="ポンプ流量"
+              stroke="#8b5cf6"
+              pinnedTimestamp={pinnedPoint?.label ?? null}
+            />
           </div>
 
           {/* 外気温度 */}
@@ -643,36 +726,13 @@ export function SensorsPage() {
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
               外気温度 (°C)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="temperature"
-                  stroke="#3b82f6"
-                  name="外気温度"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="temperature"
+              name="外気温度"
+              stroke="#3b82f6"
+              pinnedTimestamp={pinnedPoint?.label ?? null}
+            />
           </div>
 
           {/* 流体温度 */}
@@ -680,36 +740,13 @@ export function SensorsPage() {
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
               流体温度 (°C)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="fluidTemperature"
-                  stroke="#10b981"
-                  name="流体温度"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="fluidTemperature"
+              name="流体温度"
+              stroke="#10b981"
+              pinnedTimestamp={pinnedPoint?.label ?? null}
+            />
           </div>
 
           {/* ポンプ出口圧力 */}
@@ -717,36 +754,13 @@ export function SensorsPage() {
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
               ポンプ出口圧力 (MPa)
             </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 12 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '0.375rem',
-                    color: '#1f2937',
-                  }}
-                  labelStyle={{ color: '#1f2937' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="pressure"
-                  stroke="#f59e0b"
-                  name="出口圧力"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SyncedMetricChart
+              data={chartData}
+              dataKey="pressure"
+              name="出口圧力"
+              stroke="#f59e0b"
+              pinnedTimestamp={pinnedPoint?.label ?? null}
+            />
           </div>
         </div>
       )}
