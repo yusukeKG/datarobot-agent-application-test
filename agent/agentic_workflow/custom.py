@@ -19,12 +19,13 @@ from datarobot_genai.core.telemetry_agent import instrument
 
 instrument(framework="crewai")
 # ruff: noqa: E402
-from agent import MyAgent
+from agent import MyAgent, PastCaseSearchAgent
 from config import Config
 
 # isort: on
 # ------------------------------------------------------------------------------
 import asyncio
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, Iterator, Union
@@ -41,6 +42,32 @@ from openai.types.chat.completion_create_params import (
     CompletionCreateParamsNonStreaming,
     CompletionCreateParamsStreaming,
 )
+
+
+def _extract_agent_type(
+    completion_create_params: CompletionCreateParams,
+) -> str:
+    """Extract ``agent_type`` from the last user message JSON payload.
+
+    Returns the agent_type string, defaulting to ``"divergence_analyst"``
+    when the field is absent or the message is not parseable JSON.
+    """
+    default = "divergence_analyst"
+    messages = completion_create_params.get("messages", [])
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, dict):
+                return content.get("agent_type", default)
+            if isinstance(content, str):
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        return parsed.get("agent_type", default)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+            break
+    return default
 
 
 def load_model(code_dir: str) -> tuple[ThreadPoolExecutor, asyncio.AbstractEventLoop]:
@@ -103,9 +130,14 @@ def chat(
     }
     completion_create_params["forwarded_headers"] = forwarded_headers
 
-    # Instantiate the agent, all fields from the completion_create_params are passed to the agent
-    # allowing environment variables to be passed during execution
-    agent = MyAgent(**completion_create_params)
+    # Route to the appropriate agent based on agent_type in the user message.
+    # Default: MyAgent (divergence analysis).  agent_type is extracted from the
+    # JSON payload that the FastAPI server puts in the user message.
+    agent_type = _extract_agent_type(completion_create_params)
+    if agent_type == "past_case_search":
+        agent = PastCaseSearchAgent(**completion_create_params)
+    else:
+        agent = MyAgent(**completion_create_params)
 
     # Invoke the agent
     result = thread_pool_executor.submit(

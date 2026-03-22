@@ -199,3 +199,232 @@ class MyAgent(CrewAIAgent):
             ),
             agent=self.agent_divergence_analyst,
         )
+
+
+# ---------------------------------------------------------------------------
+# Dummy maintenance reports for Agent 2 (past case search)
+# ---------------------------------------------------------------------------
+
+# TODO: 実際の保守報告書データベースから検索する。
+# 現在はダミーデータを使用しています。将来的には報告書 DB への検索ツールを
+# PastCaseSearchAgent の mcp_tools に追加して、動的に取得する想定です。
+_DUMMY_MAINTENANCE_REPORTS: list[dict[str, Any]] = [
+    {
+        "report_id": "MR-2024-0847",
+        "date": "2024-08-15",
+        "equipment": "第2系統ポンプ P-201",
+        "symptoms": "電力消費が予測値を上回る傾向が2週間かけて徐々に拡大。最終的に予測比+15%に到達。振動値にも微増傾向あり。",
+        "root_cause": "ポンプ主軸の軸受（ベアリング）が摩耗し、回転抵抗が増大。",
+        "resolution": "軸受交換を実施。交換後、乖離は即座に解消。",
+        "downtime_hours": 4,
+        "keywords": ["軸受摩耗", "電力増加", "漸増パターン", "振動増加"],
+    },
+    {
+        "report_id": "MR-2024-0312",
+        "date": "2024-03-20",
+        "equipment": "第1系統ポンプ P-102",
+        "symptoms": "電力消費の乖離が断続的に発生。特に高負荷運転時に顕著。低負荷時は正常範囲内。",
+        "root_cause": "インペラ表面にスケール（水垢）が堆積し、流体抵抗が増大。",
+        "resolution": "分解清掃を実施。清掃後、性能は完全に回復。",
+        "downtime_hours": 6,
+        "keywords": ["スケール付着", "断続的乖離", "高負荷時異常", "インペラ"],
+    },
+    {
+        "report_id": "MR-2023-1105",
+        "date": "2023-11-08",
+        "equipment": "冷却系統ポンプ P-301",
+        "symptoms": "電力消費の乖離が急激に発生し、一定値で継続。流体温度の上昇も同時に観測。",
+        "root_cause": "冷却配管の一部にデブリが詰まり、流路が狭窄。",
+        "resolution": "配管フラッシングと部分交換を実施。処置後は正常化。",
+        "downtime_hours": 8,
+        "keywords": ["配管閉塞", "急激な乖離", "温度上昇", "冷却系統"],
+    },
+    {
+        "report_id": "MR-2024-0623",
+        "date": "2024-06-23",
+        "equipment": "第2系統ポンプ P-202",
+        "symptoms": "電力消費が予測値を下回る傾向が1週間継続。流量低下も同時に確認。",
+        "root_cause": "メカニカルシールの劣化により内部リークが発生し、ポンプ効率が低下。",
+        "resolution": "メカニカルシール交換。交換後、流量・電力ともに正常値に回復。",
+        "downtime_hours": 5,
+        "keywords": ["シール劣化", "電力低下", "流量低下", "内部リーク"],
+    },
+    {
+        "report_id": "MR-2025-0210",
+        "date": "2025-02-10",
+        "equipment": "第1系統ポンプ P-101",
+        "symptoms": "電力消費の乖離がランダムに発生。再現性が低く、特定の運転条件との相関なし。",
+        "root_cause": "電力計測センサーのドリフト。校正ズレにより実際の消費電力と計測値に誤差。",
+        "resolution": "電力センサーの再校正を実施。校正後、乖離は解消。",
+        "downtime_hours": 1,
+        "keywords": ["センサードリフト", "ランダム乖離", "計測誤差", "校正"],
+    },
+]
+
+
+class PastCaseSearchAgent(CrewAIAgent):
+    """過去事例検索エージェント。
+
+    Agent 1（予実乖離分析）の結果と保守報告書データベースを照合し、
+    類似した過去事例を特定して類似度・根拠とともに報告する。
+    DataRobot LLM Gateway を通じて LLM を呼び出す。
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+        model: Optional[str] = None,
+        verbose: Optional[Union[bool, str]] = True,
+        timeout: Optional[int] = 90,
+        **kwargs: Any,
+    ):
+        super().__init__(
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+            verbose=verbose,
+            timeout=timeout,
+            **kwargs,
+        )
+        self.config = Config()
+        self.default_model = self.config.llm_default_model
+        self.event_listener = CrewAIEventListener()
+
+    def llm(
+        self,
+        preferred_model: str | None = None,
+        auto_model_override: bool = True,
+    ) -> LLM:
+        """Returns the LLM to use for a given model."""
+        model = preferred_model or self.default_model
+        if auto_model_override and not self.config.use_datarobot_llm_gateway:
+            model = self.default_model
+        if self.verbose:
+            print(f"Using model: {model}")
+        return build_llm(
+            api_base=self.api_base,
+            api_key=self.api_key,
+            model=model,
+            deployment_id=self.config.llm_deployment_id,
+            timeout=self.timeout,
+        )
+
+    def make_kickoff_inputs(self, user_prompt_content: str) -> dict[str, Any]:
+        """Map the user prompt into Crew kickoff inputs.
+
+        Expects a JSON payload with keys: agent_type, analysis_summary,
+        anomaly_points. Formats dummy maintenance reports and the
+        analysis summary into template variables for the task.
+        """
+        data: dict[str, Any] | None = None
+
+        if isinstance(user_prompt_content, dict):
+            data = user_prompt_content
+        elif isinstance(user_prompt_content, str):
+            try:
+                parsed = json.loads(user_prompt_content)
+                if isinstance(parsed, dict):
+                    data = parsed
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        analysis_summary = ""
+        if data is not None:
+            analysis_summary = data.get("analysis_summary", "")
+
+        if not analysis_summary:
+            analysis_summary = str(user_prompt_content)
+
+        # TODO: 実際の報告書 DB を検索して関連報告書を取得する。
+        # 現在はダミーデータを全件使用。
+        reports_text_parts: list[str] = []
+        for i, report in enumerate(_DUMMY_MAINTENANCE_REPORTS, 1):
+            reports_text_parts.append(
+                f"### 報告書 {i}: {report['report_id']}（{report['date']}）\n"
+                f"- **設備**: {report['equipment']}\n"
+                f"- **症状**: {report['symptoms']}\n"
+                f"- **原因**: {report['root_cause']}\n"
+                f"- **対応**: {report['resolution']}\n"
+                f"- **停止時間**: {report['downtime_hours']} 時間\n"
+                f"- **キーワード**: {', '.join(report['keywords'])}"
+            )
+
+        return {
+            "analysis_summary": analysis_summary,
+            "past_reports": "\n\n".join(reports_text_parts),
+        }
+
+    @property
+    def agents(self) -> List[Agent]:
+        return [self.agent_past_case_analyst]
+
+    @property
+    def tasks(self) -> List[Task]:
+        return [self.task_search_past_cases]
+
+    @property
+    def agent_past_case_analyst(self) -> Agent:
+        """保守報告書検索アナリスト。"""
+        return Agent(
+            role="保守報告書検索アナリスト",
+            goal=(
+                "現在発生している予実乖離パターンと類似した過去の保守事例を"
+                "報告書データベースから特定し、類似度とその根拠を明確に報告する。"
+            ),
+            backstory=(
+                "あなたはポンプ・回転機器の保守履歴に精通した過去事例分析の専門家です。"
+                "様々な故障モード・劣化パターン・環境要因による異常を経験しており、"
+                "現在の症状と過去事例の類似性を多角的に評価できます。"
+                "症状のパターン（漸増・急変・断続的など）、影響を受ける計測値、"
+                "設備カテゴリの関連性を総合的に判断し、保全担当者が優先的に"
+                "確認すべき過去事例を根拠とともに提示します。"
+            ),
+            allow_delegation=False,
+            verbose=self.verbose,
+            llm=self.llm(preferred_model="datarobot/azure/gpt-5-mini-2025-08-07"),
+            tools=self.mcp_tools,
+        )
+
+    @property
+    def task_search_past_cases(self) -> Task:
+        """過去の類似事例検索タスク。"""
+        return Task(
+            description=(
+                "以下の予実乖離分析結果に基づいて、過去の保守報告書から"
+                "類似した事例を検索・評価してください。\n\n"
+                "## 現在の異常分析結果（Agent 1 出力）\n\n"
+                "{analysis_summary}\n\n"
+                "## 検索対象の保守報告書データベース\n\n"
+                "{past_reports}\n\n"
+                "## 分析の観点\n"
+                "以下の観点で各報告書との類似度を評価してください:\n\n"
+                "1. **症状パターンの類似性**: 乖離の発生パターン"
+                "（漸増・急変・断続的・ランダム）が一致するか\n"
+                "2. **乖離の規模・方向**: 乖離の大きさや方向"
+                "（予測超過 vs 予測未達）が類似しているか\n"
+                "3. **時間的特徴**: 乖離の持続時間や発生タイミングの"
+                "パターンが類似しているか\n"
+                "4. **設備カテゴリの関連性**: 対象設備の種類や"
+                "運転条件の共通点があるか\n\n"
+                "## 重要な注意事項\n"
+                "- 各報告書について類似度（%）を算出し、その根拠を具体的に説明してください\n"
+                "- 類似度の高い順にソートして報告してください\n"
+                "- 提供された報告書データのみに基づいて評価してください。"
+                "データにない事実を推測で補わないでください\n"
+                "- 類似度が低い（30%未満）事例も省略せず、"
+                "なぜ類似度が低いかを簡潔に説明してください\n"
+            ),
+            expected_output=(
+                "Markdown形式の過去事例検索レポート。以下の構成を含むこと:\n"
+                "- `## 過去事例検索結果` の見出し\n"
+                "- 検索条件の概要（現在の異常パターンの要約）\n"
+                "- 各事例について:\n"
+                "  - 報告書番号、日付、設備名\n"
+                "  - `**類似度**: XX%` と根拠の説明\n"
+                "  - 症状・原因・対応の概要\n"
+                "  - 現在の状況との共通点と相違点\n"
+                "- `### まとめ` に最も参照すべき事例の推奨\n"
+            ),
+            agent=self.agent_past_case_analyst,
+        )

@@ -120,50 +120,43 @@ async def _agent_1_divergence_analysis(
         raise
 
 
-async def _mock_agent_2_past_cases(
+async def _agent_2_past_cases(
     analysis_summary: str,
     req: AnalysisRequest,
+    agent_endpoint: str,
+    api_token: str,
 ) -> str:
-    """Agent 2: 過去の類似事例検索（モック）."""
-    await asyncio.sleep(2.0)
-
-    if len(req.anomaly_points) == 0:
+    """Agent 2: 過去の類似事例検索（LLM Gateway 経由）."""
+    if not req.anomaly_points:
         return (
             "## 過去事例検索結果\n\n"
             "現在の分析では有意な異常が検出されていないため、"
             "過去の類似事例検索は省略されました。"
         )
 
-    return (
-        "## 過去事例検索結果\n\n"
-        "過去の保守報告書データベースから、今回の乖離パターンに類似した"
-        "事例を3件抽出しました。\n\n"
-        "---\n\n"
-        "### 事例 1: ポンプ軸受摩耗による効率低下（2024年8月）\n\n"
-        "- **報告書番号**: MR-2024-0847\n"
-        "- **類似度**: 87%\n"
-        "- **症状**: 電力消費が予測値を上回る傾向が2週間かけて徐々に拡大。"
-        "最終的に予測比 +15% に到達。\n"
-        "- **原因**: ポンプ主軸の軸受（ベアリング）が摩耗し、回転抵抗が増大。\n"
-        "- **対応**: 軸受交換。停止時間は4時間。交換後、乖離は即座に解消。\n\n"
-        "---\n\n"
-        "### 事例 2: インペラへの異物付着（2024年3月）\n\n"
-        "- **報告書番号**: MR-2024-0312\n"
-        "- **類似度**: 72%\n"
-        "- **症状**: 電力消費の乖離が断続的に発生。特に高負荷運転時に顕著。\n"
-        "- **原因**: インペラ表面にスケール（水垢）が堆積し、"
-        "流体抵抗が増大。\n"
-        "- **対応**: 分解清掃。停止時間は6時間。清掃後、性能は完全に回復。\n\n"
-        "---\n\n"
-        "### 事例 3: 冷却系統の部分閉塞（2023年11月）\n\n"
-        "- **報告書番号**: MR-2023-1105\n"
-        "- **類似度**: 65%\n"
-        "- **症状**: 電力消費の乖離が急激に発生し、一定値で継続。"
-        "流体温度の上昇も同時に観測。\n"
-        "- **原因**: 冷却配管の一部にデブリが詰まり、流路が狭窄。\n"
-        "- **対応**: 配管フラッシングと部分交換。"
-        "停止時間は8時間。処置後は正常化。\n"
+    payload = {
+        "agent_type": "past_case_search",
+        "analysis_summary": analysis_summary,
+        "anomaly_points": [ap.model_dump() for ap in req.anomaly_points],
+    }
+
+    client = AsyncOpenAI(
+        base_url=agent_endpoint,
+        api_key=api_token,
+        default_headers={"Authorization": f"Bearer {api_token}"},
     )
+    try:
+        response = await client.chat.completions.create(
+            model="custom-model",
+            messages=[
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            stream=False,
+        )
+        return response.choices[0].message.content or ""
+    except Exception:
+        logger.exception("Agent 2 LLM call failed")
+        raise
 
 
 async def _mock_agent_3_maintenance_actions(
@@ -274,9 +267,7 @@ async def _run_analysis_pipeline(
             req, agent_endpoint, api_token
         )
     except Exception as exc:
-        agent1_result = (
-            f"## エラー\n\nAgent 1 の実行中にエラーが発生しました: {exc}"
-        )
+        agent1_result = f"## エラー\n\nAgent 1 の実行中にエラーが発生しました: {exc}"
     yield _sse_event(
         "agent_step",
         {
@@ -297,7 +288,12 @@ async def _run_analysis_pipeline(
             "content": "",
         },
     )
-    agent2_result = await _mock_agent_2_past_cases(agent1_result, req)
+    try:
+        agent2_result = await _agent_2_past_cases(
+            agent1_result, req, agent_endpoint, api_token
+        )
+    except Exception as exc:
+        agent2_result = f"## エラー\n\nAgent 2 の実行中にエラーが発生しました: {exc}"
     yield _sse_event(
         "agent_step",
         {
