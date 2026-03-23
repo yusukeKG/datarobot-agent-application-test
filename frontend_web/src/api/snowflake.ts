@@ -1,6 +1,6 @@
-import axios from 'axios';
+import apiClient from '@/api/apiClient';
 
-const API_BASE_URL = '/api/v1/snowflake';
+const API_BASE_URL = '/v1/snowflake';
 
 export interface PumpData {
   TIMESTAMP: string;
@@ -27,7 +27,7 @@ export interface SnowflakeStatus {
 
 export const snowflakeApi = {
   getStatus: async (): Promise<SnowflakeStatus> => {
-    const response = await axios.get(`${API_BASE_URL}/status`);
+    const response = await apiClient.get(`${API_BASE_URL}/status`);
     return response.data;
   },
 
@@ -39,7 +39,7 @@ export const snowflakeApi = {
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
 
-    const response = await axios.get(`${API_BASE_URL}/pump-data?${params}`);
+    const response = await apiClient.get(`${API_BASE_URL}/pump-data?${params}`);
     return response.data;
   },
 
@@ -51,12 +51,12 @@ export const snowflakeApi = {
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
 
-    const response = await axios.get(`${API_BASE_URL}/pump-data-prediction?${params}`);
+    const response = await apiClient.get(`${API_BASE_URL}/pump-data-prediction?${params}`);
     return response.data;
   },
 
   getTables: async (): Promise<any[]> => {
-    const response = await axios.get(`${API_BASE_URL}/tables`);
+    const response = await apiClient.get(`${API_BASE_URL}/tables`);
     return response.data;
   },
 };

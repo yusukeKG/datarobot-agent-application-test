@@ -5,9 +5,10 @@
  * a caller-supplied callback for every SSE frame received.
  */
 
-import axios from 'axios';
+import { getApiUrl } from '@/lib/utils';
+import apiClient from '@/api/apiClient';
 
-const API_BASE_URL = '/api/v1/analysis';
+const API_BASE_URL = '/v1/analysis';
 
 export interface AnomalyItem {
   timestamp: string;
@@ -68,7 +69,7 @@ export function startPowerAnalysis(
 
   (async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/power-consumption`, {
+      const response = await fetch(`${getApiUrl()}${API_BASE_URL}/power-consumption`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
@@ -163,30 +164,30 @@ export interface TimeseriesRow {
 }
 
 export async function fetchAnalysisReports(): Promise<AnalysisReportSummary[]> {
-  const res = await axios.get(`${API_BASE_URL}/reports`);
+  const res = await apiClient.get(`${API_BASE_URL}/reports`);
   return res.data;
 }
 
 export async function fetchAnalysisReport(
   uuid: string,
 ): Promise<AnalysisReportDetail> {
-  const res = await axios.get(`${API_BASE_URL}/reports/${uuid}`);
+  const res = await apiClient.get(`${API_BASE_URL}/reports/${uuid}`);
   return res.data;
 }
 
 export async function fetchAnalysisTimeseries(
   uuid: string,
 ): Promise<TimeseriesRow[]> {
-  const res = await axios.get(`${API_BASE_URL}/reports/${uuid}/timeseries`);
+  const res = await apiClient.get(`${API_BASE_URL}/reports/${uuid}/timeseries`);
   return res.data;
 }
 
 export async function deleteAnalysisReport(uuid: string): Promise<void> {
-  await axios.delete(`${API_BASE_URL}/reports/${uuid}`);
+  await apiClient.delete(`${API_BASE_URL}/reports/${uuid}`);
 }
 
 export async function downloadAnalysisReport(uuid: string): Promise<void> {
-  const res = await axios.get(`${API_BASE_URL}/reports/${uuid}/download`, {
+  const res = await apiClient.get(`${API_BASE_URL}/reports/${uuid}/download`, {
     responseType: 'blob',
   });
   const blob = new Blob([res.data], {

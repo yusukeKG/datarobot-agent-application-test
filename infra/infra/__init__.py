@@ -18,6 +18,13 @@ Core and first Pulumi set of resources.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env from project root so that all environment variables
+# (including Snowflake, DATABASE_URI, etc.) are available to Pulumi.
+_project_root = Path(__file__).parent.parent.parent
+load_dotenv(_project_root / ".env", override=False)
+
 from datarobot_pulumi_utils.pulumi.stack import PROJECT_NAME
 import pulumi
 import pulumi_datarobot as datarobot

@@ -13,15 +13,40 @@
 # limitations under the License.
 
 
-from typing import Sequence
+from typing import Sequence, Type
 
 from core.telemetry.logging import FormatType, LogLevel
-from datarobot.core.config import DataRobotAppFrameworkBaseSettings
+from datarobot.core.config import (
+    DataRobotAppFrameworkBaseSettings,
+    GetenvSettingsSource,
+    PulumiConfigSettingsSource,
+)
+from pydantic_settings import PydanticBaseSettingsSource
 
 from app.auth.oauth import OAuthImpl
 
 
 class Config(DataRobotAppFrameworkBaseSettings):
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type["Config"],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # GetenvSettingsSource must take priority over env_settings so that
+        # credential-type runtime parameters (MLOPS_RUNTIME_PARAM_*) resolve
+        # to actual secret values instead of DataRobot credential IDs.
+        return (
+            init_settings,
+            GetenvSettingsSource(settings_cls),
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+            PulumiConfigSettingsSource(settings_cls),
+        )
     session_secret_key: str
 
     datarobot_endpoint: str

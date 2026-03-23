@@ -232,6 +232,53 @@ fastapi_server_app_runtime_parameters: list[
     ]
 )
 
+DATABASE_URI: Final[str] = "DATABASE_URI"
+database_uri = os.environ.get(
+    DATABASE_URI, "sqlite+aiosqlite:////tmp/agent_app/.data/agent_app.db"
+)
+
+database_uri_cred = pulumi_datarobot.ApiTokenCredential(
+    f"Agentic Application Starter Database URI [{PROJECT_NAME}]",
+    args=pulumi_datarobot.ApiTokenCredentialArgs(
+        api_token=str(database_uri),
+    ),
+)
+
+fastapi_server_app_runtime_parameters.append(
+    pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
+        type="credential",
+        key=DATABASE_URI,
+        value=database_uri_cred.id,
+    ),
+)
+
+# Snowflake credentials
+SNOWFLAKE_CREDENTIAL_KEYS = [
+    "SNOWFLAKE_ACCOUNT",
+    "SNOWFLAKE_USER",
+    "SNOWFLAKE_PASSWORD",
+    "SNOWFLAKE_WAREHOUSE",
+    "SNOWFLAKE_DATABASE",
+    "SNOWFLAKE_SCHEMA",
+]
+
+for _sf_key in SNOWFLAKE_CREDENTIAL_KEYS:
+    _sf_value = os.environ.get(_sf_key)
+    if _sf_value:
+        _sf_cred = pulumi_datarobot.ApiTokenCredential(
+            f"Agentic Application Starter {_sf_key} [{PROJECT_NAME}]",
+            args=pulumi_datarobot.ApiTokenCredentialArgs(
+                api_token=str(_sf_value),
+            ),
+        )
+        fastapi_server_app_runtime_parameters.append(
+            pulumi_datarobot.ApplicationSourceRuntimeParameterValueArgs(
+                type="credential",
+                key=_sf_key,
+                value=_sf_cred.id,
+            ),
+        )
+
 fastapi_server_app_source = pulumi_datarobot.ApplicationSource(
     files=frontend_web.stdout.apply(
         lambda _: get_fastapi_server_app_files(
@@ -262,16 +309,4 @@ pulumi.export(
     fastapi_server_app.application_url,
 )
 
-DATABASE_URI: Final[str] = "DATABASE_URI"
-database_uri = os.environ.get(
-    DATABASE_URI, "sqlite+aiosqlite:////tmp/agent_app/.data/agent_app.db"
-)
-
 pulumi.export("DATABASE_URI", database_uri)
-
-database_uri_cred = pulumi_datarobot.ApiTokenCredential(
-    f"Agentic Application Starter Database URI [{PROJECT_NAME}]",
-    args=pulumi_datarobot.ApiTokenCredentialArgs(
-        api_token=str(database_uri),
-    ),
-)
